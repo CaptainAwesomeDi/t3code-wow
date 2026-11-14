@@ -112,6 +112,8 @@ local function InitNote(frame, ed)
 	local text = ed.text
 	if ed.since then text = string.format("%s  |cff9d9d9d(%s)|r", text, ns.Duration(time() - ed.since)) end
 	frame.Text:SetText(text)
+	local theme = ns.Theme.Get()
+	if theme then ns.Theme.SetText(frame.Text, theme.text) end
 	frame.Icon:SetAtlas(ed.icon or "common-icon-forwardarrow")
 	if ed.spin then frame.Anim:Play() else frame.Anim:Stop() end
 end
@@ -166,7 +168,7 @@ local function InitOption(button, ed)
 		button.Bullet:SetSize(7, 7)
 	end
 	button.Label:SetText(ed.label)
-	if ed.primary then button.Label:SetTextColor(1, 1, 1) else button.Label:SetTextColor(NORMAL_FONT_COLOR:GetRGB()) end
+	if theme or ed.primary then button.Label:SetTextColor(1, 1, 1) else button.Label:SetTextColor(NORMAL_FONT_COLOR:GetRGB()) end
 	button:SetScript("OnClick", function()
 		PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
 		ed.onClick()

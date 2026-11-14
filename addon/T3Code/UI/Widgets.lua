@@ -56,6 +56,54 @@ function UI.Button(parent, text, width, onClick, primary)
 	return b
 end
 
+-- A pill switch drawn on the right of a CheckButton: gold when on, a dark track
+-- when off, a light thumb that slides. The button is the hit target, so the whole
+-- row toggles, the way Polestar's setting rows do. No art: the caps and the thumb
+-- are the portrait mask over a flat texture. `Fill` is the thumb, so callers can
+-- tell a drawn switch from the game's own checkbox.
+function UI.PaintSwitch(b)
+	local theme = Theme.Get()
+	local h = 18
+	local holder = CreateFrame("Frame", nil, b)
+	holder:SetSize(38, h)
+	holder:SetPoint("RIGHT", -12, 0)
+	b.Switch = holder
+	local function cap(point)
+		local t = holder:CreateTexture(nil, "ARTWORK")
+		t:SetTexture("Interface\\Buttons\\WHITE8X8")
+		t:SetSize(h, h)
+		t:SetPoint(point, holder, point, 0, 0)
+		t:SetMask("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+		return t
+	end
+	local left, right = cap("LEFT"), cap("RIGHT")
+	local mid = holder:CreateTexture(nil, "ARTWORK")
+	mid:SetTexture("Interface\\Buttons\\WHITE8X8")
+	mid:SetPoint("LEFT", holder, "LEFT", h / 2, 0)
+	mid:SetPoint("RIGHT", holder, "RIGHT", -h / 2, 0)
+	mid:SetHeight(h)
+	local knob = holder:CreateTexture(nil, "OVERLAY")
+	knob:SetTexture("Interface\\Buttons\\WHITE8X8")
+	knob:SetSize(12, 12)
+	knob:SetMask("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+	knob:SetVertexColor(theme.knob[1], theme.knob[2], theme.knob[3], 1)
+	b.Fill = knob
+	b.Track = { left, mid, right }
+	-- A bare check button would draw the game's yellow tick. Keep the button, hide the tick.
+	local blank = b:CreateTexture(nil, "ARTWORK")
+	blank:SetColorTexture(0, 0, 0, 0)
+	blank:SetAllPoints()
+	b:SetCheckedTexture(blank)
+	function b:Sync()
+		local on = self:GetChecked() and true or false
+		local c = on and theme.accent or theme.switchOff
+		for _, t in ipairs(self.Track) do t:SetVertexColor(c[1], c[2], c[3], c[4] or 1) end
+		self.Fill:ClearAllPoints()
+		self.Fill:SetPoint(on and "RIGHT" or "LEFT", holder, on and "RIGHT" or "LEFT", on and -3 or 3, 0)
+	end
+	return b
+end
+
 -- A square button showing an atlas or texture, like the chat frame's small buttons.
 function UI.IconButton(parent, icon, size, tooltip, onClick)
 	local b = CreateFrame("Button", nil, parent)
@@ -276,12 +324,10 @@ local function EnsureList()
 		if row.Check then row.Check:SetShown(selected) end
 		if row.Bar then row.Bar:SetShown(selected) end
 		row.Text:SetText(ed.label)
-		if selected then
-			if theme then
-				row.Text:SetTextColor(theme.accent[1], theme.accent[2], theme.accent[3])
-			else
-				row.Text:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
-			end
+		-- Gold stays on the selection bar. The label stays white, so a chosen row
+		-- reads the same way Polestar's menus do.
+		if selected and not theme then
+			row.Text:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
 		else
 			row.Text:SetTextColor(1, 1, 1)
 		end
@@ -488,12 +534,25 @@ function UI.ProgressBar(parent)
 		holder:SetBackdropBorderColor(0.75, 0.6, 0.3, 1)
 	end
 	local bar = CreateFrame("StatusBar", nil, holder)
-	bar:SetPoint("TOPLEFT", 4, -4)
-	bar:SetPoint("BOTTOMRIGHT", -4, 4)
+	-- A thin gold bar, like Polestar's progress line. The percent stays centered
+	-- on the holder so it doesn't sit inside the thin fill.
+	if theme then
+		bar:SetPoint("TOPLEFT", 2, -9)
+		bar:SetPoint("BOTTOMRIGHT", -2, 9)
+	else
+		bar:SetPoint("TOPLEFT", 4, -4)
+		bar:SetPoint("BOTTOMRIGHT", -4, 4)
+	end
 	bar:SetStatusBarTexture(theme and "Interface\\Buttons\\WHITE8X8" or "Interface\\TargetingFrame\\UI-StatusBar")
 	bar:SetStatusBarColor(0.1, 0.7, 0.15)
 	bar:SetMinMaxValues(0, 100)
-	local text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	-- The bar is its own frame, so it paints over the holder's text. A frame above it
+	-- keeps the percent readable.
+	local label = CreateFrame("Frame", nil, holder)
+	label:SetAllPoints()
+	label:EnableMouse(false)
+	label:SetFrameLevel(bar:GetFrameLevel() + 2)
+	local text = label:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	text:SetPoint("CENTER")
 	holder.Bar, holder.Text = bar, text
 	function holder:SetPercent(p)
@@ -501,6 +560,7 @@ function UI.ProgressBar(parent)
 		bar:SetValue(p)
 		if p >= 90 then bar:SetStatusBarColor(0.8, 0.15, 0.1)
 		elseif p >= 70 then bar:SetStatusBarColor(0.85, 0.6, 0.1)
+		elseif theme then bar:SetStatusBarColor(theme.accent[1], theme.accent[2], theme.accent[3])
 		else bar:SetStatusBarColor(0.1, 0.7, 0.15) end
 		text:SetText(string.format("%d%% used", p))
 	end
