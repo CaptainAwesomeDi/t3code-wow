@@ -73,7 +73,7 @@ local function InitMessage(frame, ed)
 		frame.Label:SetText(ns.Color("agent", "agent") .. (m.live and ns.Color("grey", "  writing…") or ""))
 	end
 	frame.Body:SetWidth(T:BodyWidth())
-	frame.Body:SetText(m.t)
+	frame.Body:SetText(ns.Theme.Markup(m.t))
 	-- If the real text is taller than estimated (font or scale differences), grow the
 	-- row and lay the list out again rather than letting the next row overlap it.
 	local needed = 34 + math.ceil(frame.Body:GetStringHeight())
@@ -111,7 +111,7 @@ local function InitNote(frame, ed)
 	frame.Text:SetWidth(T:BodyWidth() - 22)
 	local text = ed.text
 	if ed.since then text = string.format("%s  |cff9d9d9d(%s)|r", text, ns.Duration(time() - ed.since)) end
-	frame.Text:SetText(text)
+	frame.Text:SetText(ns.Theme.Markup(text))
 	local theme = ns.Theme.Get()
 	if theme then ns.Theme.SetText(frame.Text, theme.text) end
 	local mark = ed.icon or "common-icon-forwardarrow"
@@ -151,7 +151,7 @@ local function InitOption(button, ed)
 	local theme = ns.Theme.Get()
 	if ed.checked ~= nil then
 		if theme then
-			-- A flat square: gold when checked, grey when not.
+			-- A flat square: the accent when checked, grey when not.
 			button.Bullet:SetTexture("Interface\\Buttons\\WHITE8X8")
 			if ed.checked then
 				ns.Theme.Paint(button.Bullet, theme.accent)
@@ -166,7 +166,7 @@ local function InitOption(button, ed)
 	else
 		button.Bullet:SetTexture("Interface\\Buttons\\WHITE8X8")
 		if theme then
-			-- A short gold mark. A white square sat in the same colour as the words.
+			-- A short accent mark. A white square sat in the same colour as the words.
 			ns.Theme.Paint(button.Bullet, theme.accent)
 			button.Bullet:SetSize(3, 10)
 		else
@@ -197,7 +197,7 @@ end
 function T:Create(parent, header, composer)
 	local inset
 	if ns.Theme.Get() then
-		-- The conversation sits on the window's own ground, as Polestar's rows do;
+		-- The conversation sits on the window's own ground;
 		-- the composer below is the panel.
 		inset = CreateFrame("Frame", nil, parent)
 	else

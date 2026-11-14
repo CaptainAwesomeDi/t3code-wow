@@ -64,7 +64,7 @@ function ns.SelfTest()
 	local function line(pass, text, fix)
 		ns.Print((pass and ok or bad) .. " " .. text .. ((not pass and fix) and ns.Color("grey", " — " .. fix) or ""))
 	end
-	ns.Print(ns.Color("gold", "Self-test"))
+	ns.Print("|c" .. ns.COLORS.gold .. "Self-test|r")
 	line(T.slotCount > 0, string.format("live-update files: %d found", T.slotCount), "run t3code-wow install, then fully restart the game")
 	T:SelfTest(function(result)
 		line(result == "ok", "update bells: " .. result .. (result == "ok" and (" (" .. tostring(T.channel) .. " channel)") or ""),

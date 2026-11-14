@@ -87,7 +87,7 @@ local function CreateRow(button)
 	button.Dot = dot
 
 	-- GameFontNormal is the game's gold. On the dark ground a thread title is white,
-	-- and gold is reserved for the selected row's bar.
+	-- and the accent is reserved for the selected row's bar.
 	local title = button:CreateFontString(nil, "ARTWORK", theme and "GameFontHighlight" or "GameFontNormal")
 	title:SetPoint("TOPLEFT", 18, -7)
 	title:SetPoint("RIGHT", -74, 0)
