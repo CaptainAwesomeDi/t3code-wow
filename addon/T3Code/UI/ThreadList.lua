@@ -184,6 +184,13 @@ function L:Create(parent)
 	search:SetPoint("TOPLEFT", dd, "BOTTOMLEFT", 6, -6)
 	search:SetPoint("TOPRIGHT", dd, "BOTTOMRIGHT", -2, -6)
 	search:SetAutoFocus(false)
+	local theme = ns.Theme.Get()
+	if theme then
+		-- A flat well over the template's art; its magnifier stays on top.
+		local well = ns.Theme.Solid(search, theme.track, "ARTWORK")
+		well:SetAllPoints()
+		ns.Theme.Edges(search, theme.hairline)
+	end
 	search:HookScript("OnTextChanged", function(box)
 		L.query = strtrim(box:GetText() or ""):lower()
 		L:Refresh(true)

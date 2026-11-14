@@ -41,8 +41,9 @@ function Theme.Solid(parent, token, layer)
 end
 
 -- Four 1px rules around the parent's edge: a border that stays crisp at any
--- window scale, without any art.
-function Theme.Edges(parent, token)
+-- window scale, without any art. `skipLeft` drops the left rule, for a tab that
+-- grows out of the border it attaches to.
+function Theme.Edges(parent, token, skipLeft)
 	local function rule(vertical)
 		local t = parent:CreateTexture(nil, "ARTWORK")
 		Theme.Paint(t, token)
@@ -54,9 +55,13 @@ function Theme.Edges(parent, token)
 	top:SetPoint("TOPRIGHT")
 	bottom:SetPoint("BOTTOMLEFT")
 	bottom:SetPoint("BOTTOMRIGHT")
-	local left, right = rule(true), rule(true)
-	left:SetPoint("TOPLEFT")
-	left:SetPoint("BOTTOMLEFT")
+	local left
+	if not skipLeft then
+		left = rule(true)
+		left:SetPoint("TOPLEFT")
+		left:SetPoint("BOTTOMLEFT")
+	end
+	local right = rule(true)
 	right:SetPoint("TOPRIGHT")
 	right:SetPoint("BOTTOMRIGHT")
 	return top, bottom, left, right
