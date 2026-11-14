@@ -1229,6 +1229,7 @@ do
 	local old = ns.Main.frame
 	local page = ns.Main.page
 	ns.Main.composer:SetText("a draft survives the switch")
+	ns.db.settings.windowSize = { 820, 520 }
 	ns.db.settings.theme = "modern"
 	ns.Main:ApplyTheme()
 	local f = ns.Main.frame
@@ -1236,10 +1237,15 @@ do
 	check(f:IsShown(), "the window stays open across the switch")
 	check(ns.Main.page == page, "the open page survives the switch")
 	check(ns.Main.composer:GetInputText() == "a draft survives the switch", "the draft survives the switch")
-	local ground, accent = ns.Theme.MODERN.windowBg, ns.Theme.MODERN.accent
+	check(f._w == 820 and f._h == 520, "a saved window size is applied to the rebuilt window")
+	local ground, accent, panel = ns.Theme.MODERN.windowBg, ns.Theme.MODERN.accent, ns.Theme.MODERN.panel
 	check(f.ModernBg._color[1] == ground[1] and f.ModernBg._color[2] == ground[2] and f.ModernBg._color[3] == ground[3], "the modern ground is painted")
 	check(f.ModernRim._color[1] == accent[1] and f.ModernRim._color[2] == accent[2] and f.ModernRim._color[3] == accent[3], "the gold rim runs along the top edge")
+	check(f.ModernBand._color[1] == panel[1] and f.ModernBand._color[2] == panel[2], "the title band is painted")
+	check(f.ModernClose and f.ModernClose.Text:GetText() == "×", "the modern close is a quiet ×")
+	check(f.CloseButton == nil or f.CloseButton._shown == false, "the template's close button is hidden in modern")
 	check(f.NineSlice and f.NineSlice._shown == false, "the game's ornate border is hidden")
+	check(ns.Settings.checks[1].Fill ~= nil, "modern checkboxes are flat wells")
 	if rowThread then
 		local selected
 		for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
@@ -1249,10 +1255,25 @@ do
 			and selected.AccentBar._color[1] == accent[1], "the selected thread carries the accent bar")
 		check(selected.Selected._atlas == nil and selected.Selected._color[1] == ns.Theme.MODERN.selected[1], "selection is a flat wash, not the game's art")
 	end
+	-- Resize: the corner grip saves the size, clamped to the minimum.
+	local grip = f.ResizeGrip
+	check(grip ~= nil, "the window has a resize grip")
+	grip._scripts.OnDragStart(grip)
+	f:SetSize(600, 400)
+	grip._scripts.OnDragStop(grip)
+	check(ns.db.settings.windowSize[1] == 760 and ns.db.settings.windowSize[2] == 480, "a resize below the minimum is clamped")
+	check(f._w == 760 and f._h == 480, "the window itself is clamped to the minimum")
+	grip._scripts.OnDragStart(grip)
+	f:SetSize(1100, 700)
+	grip._scripts.OnDragStop(grip)
+	check(ns.db.settings.windowSize[1] == 1100 and ns.db.settings.windowSize[2] == 700, "a resize is kept for next time")
 	ns.db.settings.theme = "classic"
 	ns.Main:ApplyTheme()
 	local f3 = ns.Main.frame
 	check(f3 ~= f and not f3.ModernBg, "switching back rebuilds the classic window")
+	check(f3._w == 1100 and f3._h == 700, "the resized size carries across the design switch")
+	check(f3.ResizeGrip ~= nil, "the classic window resizes too")
+	check(not ns.Settings.checks[1].Fill, "classic checkboxes keep the game's own look")
 	check(f3.NineSlice and f3.NineSlice._shown ~= false, "the game's ornate border is back")
 	check(f3:IsShown() and ns.Main.page == page, "still open on the same page after switching back")
 	ns.Main:ShowPage("settings")

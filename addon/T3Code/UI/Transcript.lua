@@ -176,7 +176,14 @@ end
 ---------------------------------------------------------------------------
 
 function T:Create(parent, header, composer)
-	local inset = UI.Inset(parent)
+	local inset
+	if ns.Theme.Get() then
+		-- The conversation sits on the window's own ground, as Polestar's rows do;
+		-- the composer below is the panel.
+		inset = CreateFrame("Frame", nil, parent)
+	else
+		inset = UI.Inset(parent)
+	end
 	inset:SetPoint("TOPLEFT", header, "BOTTOMLEFT", -2, -4)
 	inset:SetPoint("BOTTOMRIGHT", composer, "TOPRIGHT", 0, 4)
 	self.inset, self.header, self.top = inset, header, header

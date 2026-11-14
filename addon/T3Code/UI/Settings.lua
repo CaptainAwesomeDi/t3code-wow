@@ -2,6 +2,7 @@
 
 local _, ns = ...
 local UI = ns.UI
+local Theme = ns.Theme
 
 local S = {}
 ns.Settings = S
@@ -37,14 +38,37 @@ function S:Create(page)
 
 	local y = -48
 	self.checks = {}
+	local theme = Theme.Get()
 	for _, c in ipairs(CHECKS) do
-		local cb = CreateFrame("CheckButton", nil, page, "UICheckButtonTemplate")
+		local cb
+		if theme then
+			-- A flat well: a hairline square that fills with the accent when on.
+			cb = CreateFrame("CheckButton", nil, page)
+			cb:SetSize(16, 16)
+			local well = Theme.Solid(cb, theme.track)
+			well:SetAllPoints()
+			Theme.Edges(cb, theme.hairline)
+			cb.Fill = Theme.Solid(cb, theme.accent, "ARTWORK")
+			cb.Fill:SetPoint("TOPLEFT", 3, -3)
+			cb.Fill:SetPoint("BOTTOMRIGHT", -3, -3)
+			cb.Fill:Hide()
+			local hl = Theme.Solid(cb, theme.hover, "HIGHLIGHT")
+			hl:SetAllPoints()
+			cb.Text = cb:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+			cb.Text:SetPoint("LEFT", cb, "RIGHT", 8, 0)
+		else
+			cb = CreateFrame("CheckButton", nil, page, "UICheckButtonTemplate")
+			cb.Text:SetFontObject("GameFontHighlight")
+		end
 		cb:SetPoint("TOPLEFT", 16, y)
-		cb.Text:SetFontObject("GameFontHighlight")
 		cb.Text:SetText(c.label)
 		cb:SetScript("OnClick", function(self)
-			ns.db.settings[c.key] = self:GetChecked() and true or false
-			PlaySound(self:GetChecked() and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF)
+			-- A plain check button doesn't toggle itself; the template does.
+			if self.Fill then self:SetChecked(not self:GetChecked()) end
+			local on = self:GetChecked() and true or false
+			if self.Fill then self.Fill:SetShown(on) end
+			ns.db.settings[c.key] = on
+			PlaySound(on and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF)
 			if c.after then c.after() end
 		end)
 		cb.key = c.key
@@ -148,7 +172,11 @@ local SIGNAL_TEXT = {
 
 function S:Refresh()
 	if not self.page then return end
-	for _, cb in ipairs(self.checks) do cb:SetChecked(ns.db.settings[cb.key] and true or false) end
+	for _, cb in ipairs(self.checks) do
+		local on = ns.db.settings[cb.key] and true or false
+		cb:SetChecked(on)
+		if cb.Fill then cb.Fill:SetShown(on) end
+	end
 	self.voice.value = ns.db.settings.tts
 	self.voice:Update()
 	self.size.value = ns.db.settings.windowScale or "auto"

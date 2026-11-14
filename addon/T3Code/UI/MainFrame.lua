@@ -9,14 +9,45 @@ local M = {}
 ns.Main = M
 
 local WIDTH, HEIGHT = 940, 640
+local MIN_W, MIN_H = 760, 480
 local LIST_W = 300
 local COMPOSER_H = 92
+local BAND_H = 34
 
 M.page = "threads"
 M.mode = "thread" -- "thread" | "new"
 
 -- The bottom bar's buttons, left to right.
 M.BAR_KEYS = { "Refresh", "New", "Back", "Stop", "Mic", "Speak", "Shot", "Insert", "Send" }
+
+-- A corner grip: drag it to resize the window, and the size is kept for next
+-- time. Made after the button bar so its corner sits on top of it.
+local function CreateResizeGrip(f)
+	f:SetResizable(true)
+	if f.SetResizeBounds then f:SetResizeBounds(MIN_W, MIN_H) end
+	local grip = CreateFrame("Frame", nil, f)
+	grip:SetSize(16, 16)
+	grip:SetPoint("BOTTOMRIGHT", -2, 2)
+	grip:EnableMouse(true)
+	grip:RegisterForDrag("LeftButton")
+	grip:SetScript("OnDragStart", function() f:StartSizing("BOTTOMRIGHT") end)
+	grip:SetScript("OnDragStop", function()
+		f:StopMovingOrSizing()
+		local w, h = f:GetWidth(), f:GetHeight()
+		w, h = math.max(MIN_W, math.floor(w)), math.max(MIN_H, math.floor(h))
+		f:SetSize(w, h)
+		ns.db.settings.windowSize = { w, h }
+	end)
+	-- Three small diagonal rules, the usual corner grip, drawn in code.
+	for i = 0, 2 do
+		local rule = grip:CreateTexture(nil, "ARTWORK")
+		rule:SetColorTexture(1, 1, 1, 0.35)
+		rule:SetSize(7, 1)
+		rule:SetPoint("BOTTOMLEFT", 2 + i * 4, 3 + i * 4)
+		rule:SetRotation(math.rad(-45))
+	end
+	f.ResizeGrip = grip
+end
 
 ---------------------------------------------------------------------------
 -- Frame
@@ -30,7 +61,8 @@ local function CreateSideTab(f, index, icon, tooltip, page)
 		tab:SetSize(40, 40)
 		local bg = Theme.Solid(tab, theme.panelAlt)
 		bg:SetAllPoints()
-		Theme.Edges(tab, theme.hairline)
+		-- No left rule: the tab grows out of the window's own border.
+		Theme.Edges(tab, theme.hairline, true)
 		local bar = Theme.Solid(tab, theme.accent, "ARTWORK")
 		bar:SetWidth(2)
 		bar:SetPoint("TOPLEFT")
@@ -65,6 +97,10 @@ function M:Create()
 	local f = CreateFrame("Frame", "T3CodeFrame", UIParent, "ButtonFrameTemplate")
 	self.frame = f
 	f:SetSize(WIDTH, HEIGHT)
+	local savedSize = ns.db.settings.windowSize
+	if savedSize then
+		f:SetSize(math.max(MIN_W, savedSize[1] or WIDTH), math.max(MIN_H, savedSize[2] or HEIGHT))
+	end
 	f:SetPoint("CENTER", 0, 20)
 	f:SetFrameStrata("HIGH")
 	f:SetToplevel(true)
@@ -75,10 +111,13 @@ function M:Create()
 	f:SetTitle("T3 Code")
 	f:SetPortraitToAsset(ns.media .. "portrait")
 	-- The modern design hides the game's ornate frame and paints its own: a dark
-	-- ground, a hairline border, and the accent running along the top edge.
+	-- ground, a hairline border, the accent running along the top edge and a title
+	-- band, as Polestar's windows do, with content sitting on the ground itself.
 	local theme = Theme.Get()
 	if theme then
-		for _, piece in ipairs({ f.NineSlice, f.Bg, f.PortraitContainer, f.Portrait, f.TitleContainer }) do
+		-- By name: a piece the template doesn't have must not stop the loop.
+		for _, key in ipairs({ "NineSlice", "Bg", "PortraitContainer", "Portrait", "TitleContainer", "CloseButton" }) do
+			local piece = f[key]
 			if piece then piece:Hide() end
 		end
 		if f.Inset and f.Inset.NineSlice then f.Inset.NineSlice:Hide() end
@@ -89,14 +128,35 @@ function M:Create()
 		f.ModernRim:SetHeight(2)
 		f.ModernRim:SetPoint("TOPLEFT")
 		f.ModernRim:SetPoint("TOPRIGHT")
+		f.ModernBand = Theme.Solid(f, theme.panel)
+		f.ModernBand:SetHeight(BAND_H)
+		f.ModernBand:SetPoint("TOPLEFT")
+		f.ModernBand:SetPoint("TOPRIGHT")
+		f.ModernBandRule = Theme.Solid(f, theme.hairline, "ARTWORK")
+		f.ModernBandRule:SetHeight(1)
+		f.ModernBandRule:SetPoint("TOPLEFT", 0, -BAND_H)
+		f.ModernBandRule:SetPoint("TOPRIGHT", 0, -BAND_H)
 		if f.Inset then
-			f.ModernInset = Theme.Solid(f.Inset, theme.panel)
+			-- The pages sit on the window's own ground, not on a raised panel.
+			f.ModernInset = Theme.Solid(f.Inset, theme.windowBg)
 			f.ModernInset:SetAllPoints()
 		end
 		f.ModernTitle = f:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-		f.ModernTitle:SetPoint("TOPLEFT", 16, -8)
+		f.ModernTitle:SetPoint("TOPLEFT", 14, -7)
 		f.ModernTitle:SetText("T3 Code")
 		f.ModernTitle:SetTextColor(theme.accent[1], theme.accent[2], theme.accent[3])
+		-- A quiet × in the band's corner, no button chrome.
+		local close = CreateFrame("Button", nil, f)
+		close:SetSize(24, 24)
+		close:SetPoint("TOPRIGHT", -2, -5)
+		close.Text = close:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
+		close.Text:SetPoint("CENTER", 0, 0)
+		close.Text:SetText("×")
+		local closeHl = Theme.Solid(close, theme.hover, "HIGHLIGHT")
+		closeHl:SetAllPoints()
+		close:SetScript("OnClick", function() f:Hide() end)
+		UI.Tooltip(close, "Close")
+		f.ModernClose = close
 	end
 	-- The name is what matters in UISpecialFrames, and it survives rebuilds.
 	local named
@@ -130,6 +190,21 @@ function M:Create()
 	f.Status = UI.Text(f, "GameFontGreenSmall", "CENTER")
 	f.Status:SetPoint("TOP", f.Subtitle, "BOTTOM", 0, -2)
 	f.Status:SetWidth(WIDTH - 220)
+	if theme then
+		-- Under the title band, reading from the left, like Polestar's titles.
+		f.Subtitle:ClearAllPoints()
+		f.Subtitle:SetPoint("TOPLEFT", 16, -(BAND_H + 10))
+		f.Subtitle:SetJustifyH("LEFT")
+		f.Status:ClearAllPoints()
+		f.Status:SetPoint("TOPLEFT", f.Subtitle, "BOTTOMLEFT", 0, -2)
+		f.Status:SetJustifyH("LEFT")
+	end
+	-- The centered texts are sized for the default window; keep up with a resize.
+	f:HookScript("OnSizeChanged", ns.Safe(function(self)
+		local w = math.max(200, self:GetWidth() - 220)
+		self.Subtitle:SetWidth(w)
+		self.Status:SetWidth(w)
+	end))
 
 	-- Collapse the thread list (arrow under the close button).
 	f.SidebarToggle = UI.IconButton(f, "common-icon-backarrow", 24, "Hide the thread list", function() M:ToggleSidebar() end)
@@ -154,6 +229,7 @@ function M:Create()
 
 	-- Bottom button bar.
 	self:CreateButtonBar(f)
+	CreateResizeGrip(f)
 
 	-- Side tabs.
 	f.Tabs = {
@@ -396,7 +472,7 @@ function M:CreateButtonBar(f)
 	end)
 
 	bar.Send = UI.Button(f, "Send", 110, function() M:Send() end, true)
-	bar.Send:SetPoint("BOTTOMRIGHT", -6, 4)
+	bar.Send:SetPoint("BOTTOMRIGHT", -26, 4) -- clear of the resize grip
 	f.Bar = bar
 end
 
