@@ -246,14 +246,12 @@ do
 	local wt
 	for _, cb in ipairs(ns.Settings.checks or {}) do if cb.key == "newWorktree" then wt = cb end end
 	check(wt and not wt:GetChecked(), "worktree is a setting, off by default")
-	wt:SetChecked(true) -- the stub's Click runs the handler but doesn't flip the box
-	wt:Click()
+	wt:Click() -- a check button toggles itself, then the handler stores it
 	check(ns.db.settings.newWorktree == true, "ticking the setting remembers worktree threads")
 	ns.Main.composer._text = "Build a thing"
 	ns.Main:Send()
 	local pickI, pickS = ns.Store.SplitModelKey(pick.value)
 	check(ns.Transport:Payload():find("Build a thing\031" .. pickI .. "\031" .. pickS .. "\031" .. (level or "") .. "\0311", 1, true) ~= nil, "the worktree setting rides along with the new thread")
-	wt:SetChecked(false)
 	wt:Click()
 	check(ns.db.settings.newWorktree == false, "unticking stops worktree threads")
 end
@@ -1240,12 +1238,24 @@ do
 	check(f._w == 820 and f._h == 520, "a saved window size is applied to the rebuilt window")
 	local ground, accent, panel = ns.Theme.MODERN.windowBg, ns.Theme.MODERN.accent, ns.Theme.MODERN.panel
 	check(f.ModernBg._color[1] == ground[1] and f.ModernBg._color[2] == ground[2] and f.ModernBg._color[3] == ground[3], "the modern ground is painted")
-	check(f.ModernRim._color[1] == accent[1] and f.ModernRim._color[2] == accent[2] and f.ModernRim._color[3] == accent[3], "the gold rim runs along the top edge")
-	check(f.ModernBand._color[1] == panel[1] and f.ModernBand._color[2] == panel[2], "the title band is painted")
+	check(f.ModernBg._color == nil or ground[4] < 1, "the modern ground is translucent, like Polestar")
+	check(not f.ModernRim, "the gold top trim is gone")
+	check(f.ModernBand._color[1] == ground[1] and f.ModernBand._color[2] == ground[2], "the title band is the same ground")
 	check(f.ModernClose and f.ModernClose.Text:GetText() == "×", "the modern close is a quiet ×")
 	check(f.CloseButton == nil or f.CloseButton._shown == false, "the template's close button is hidden in modern")
 	check(f.NineSlice and f.NineSlice._shown == false, "the game's ornate border is hidden")
 	check(ns.Settings.checks[1].Fill ~= nil and ns.Settings.checks[1].Sync ~= nil, "modern settings use a drawn switch")
+	local savedTrackerThreads = ns.Store.data.threads
+	ns.Store.data.threads = { { id = "fin", title = "Improve Polestar UI Design", s = "open", un = true, u = time(), p = "p" } }
+	ns.Tracker:Refresh()
+	local tf = ns.Tracker.frame
+	check(tf.Modern and tf.Modern.Bg._color[1] == ground[1] and tf.Modern.Band._shown ~= false, "the tracker wears the dusk card")
+	check(tf.Header._shown == false, "the objective tracker header steps aside")
+	check(tf.Lines[1] and tf.Lines[1].Sub:GetText() == "Finished · now", "a finished thread reads as a quiet status")
+	check(tf.Lines[1].Dot._shown == false and tf.Lines[1].Bar._shown == false, "a finished thread has no dot and no gold bar")
+	ns.Store.data.threads = { { id = "need", title = "Approve", s = "input", l = "Needs you", p = "p" } }
+	ns.Tracker:Refresh()
+	check(tf.Lines[1].Bar._shown ~= false and tf.Lines[1].Bar._color[1] == accent[1], "a thread that needs you carries the gold bar")
 	local trackerOn = ns.db.settings.tracker
 	ns.Settings.checks[1]:SetChecked(true)
 	ns.Settings.checks[1]:Click()
@@ -1286,6 +1296,12 @@ do
 	f:SetSize(1100, 700)
 	grip._scripts.OnDragStop(grip)
 	check(ns.db.settings.windowSize[1] == 1100 and ns.db.settings.windowSize[2] == 700, "a resize is kept for next time")
+	ns.Main:ApplyListWidth(40)
+	check(ns.db.settings.listWidth == 180 and ns.Main.frame.Pages.threads.Left:GetWidth() == 180, "the thread list won't shrink past 180")
+	ns.Main:ApplyListWidth(9000)
+	local listMax = math.max(180, ns.Main.frame:GetWidth() - 420)
+	check(ns.db.settings.listWidth == listMax, "the thread list leaves room for the conversation")
+	ns.Main:ApplyListWidth(300)
 	ns.db.settings.theme = "classic"
 	ns.Main:ApplyTheme()
 	local f3 = ns.Main.frame
@@ -1293,6 +1309,11 @@ do
 	check(f3._w == 1100 and f3._h == 700, "the resized size carries across the design switch")
 	check(f3.ResizeGrip ~= nil, "the classic window resizes too")
 	check(not ns.Settings.checks[1].Fill, "classic checkboxes keep the game's own look")
+	check(tf.Header._shown ~= false and tf.Modern.Band._shown == false, "the classic tracker header returns")
+	check(tf.Lines[1].Sub:GetText():find("^- ", 1) ~= nil, "classic status keeps the tracker dash")
+	check(tf.Lines[1].Dot._shown ~= false, "the classic tracker dot is back")
+	ns.Store.data.threads = savedTrackerThreads
+	ns.Tracker:Refresh()
 	check(f3.NineSlice and f3.NineSlice._shown ~= false, "the game's ornate border is back")
 	check(f3:IsShown() and ns.Main.page == page, "still open on the same page after switching back")
 	ns.Main:ShowPage("settings")

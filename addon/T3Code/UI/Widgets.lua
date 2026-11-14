@@ -7,6 +7,126 @@ local Theme = ns.Theme
 local UI = {}
 ns.UI = UI
 
+-- Line icons drawn for the modern design, in the same stroke as Polestar's set.
+-- The classic design keeps the game's own atlases and item icons.
+local LINE_ICONS = {
+	["common-icon-backarrow"] = "chevron-left",
+	["common-dropdown-icon-back"] = "chevron-left",
+	["common-icon-redx"] = "x",
+	["voicechat-icon-mic"] = "mic",
+	["voicechat-icon-speaker"] = "speaker",
+	["Interface\\Icons\\INV_Misc_Spyglass_03"] = "camera",
+	["Interface\\Icons\\INV_Misc_Book_09"] = "book",
+	["common-icon-forwardarrow"] = "arrow-right",
+	["common-icon-undo"] = "refresh",
+	["common-icon-checkmark"] = "check",
+	["common-button-list-plus"] = "plus",
+	["common-button-list-minus"] = "minus",
+}
+
+function UI.LineIcon(name)
+	return ns.media .. "icons\\" .. name
+end
+
+-- Put a line icon on `tex` when the modern design is on and `icon` is one of the
+-- game icons it stands in for. Otherwise leave the game's atlas or texture.
+function UI.SetIcon(tex, icon, size)
+	local theme = Theme.Get()
+	local line = theme and LINE_ICONS[icon]
+	if line then
+		tex:SetTexture(UI.LineIcon(line))
+		tex:SetVertexColor(theme.text[1], theme.text[2], theme.text[3], 1)
+		if size then tex:SetSize(size, size) end
+		return true
+	end
+	if icon and C_Texture.GetAtlasInfo(icon) then tex:SetAtlas(icon) else tex:SetTexture(icon) end
+	if size then tex:SetSize(size, size) end
+end
+
+-- The search box template brings the game's magnifier. Cover it with the line icon.
+function UI.UseLineSearch(search)
+	local theme = Theme.Get()
+	if not theme or search.LineIcon then return end
+	if search.searchIcon then search.searchIcon:Hide() end
+	local icon = search:CreateTexture(nil, "OVERLAY")
+	icon:SetTexture(UI.LineIcon("search"))
+	icon:SetSize(13, 13)
+	icon:SetPoint("LEFT", 6, 0)
+	icon:SetVertexColor(theme.muted[1], theme.muted[2], theme.muted[3], 1)
+	search.LineIcon = icon
+	-- The template's own magnifier is an atlas texture on the box. Ours replaces it.
+	for _, region in ipairs({ search:GetRegions() }) do
+		if region ~= icon and region.GetAtlas and region:GetAtlas() then region:Hide() end
+	end
+end
+
+-- A thin track and thumb for the modern design. The game's bar is a wide thumb
+-- with arrow buttons, and on the settings page it sits on top of the rows.
+local function HideBarPiece(w)
+	if not w then return end
+	w:SetAlpha(0)
+	if w.EnableMouse then w:EnableMouse(false) end
+end
+
+function UI.StyleScrollBar(bar)
+	local theme = Theme.Get()
+	if not theme or not bar then return end
+	HideBarPiece(bar.Back)
+	HideBarPiece(bar.Forward)
+	HideBarPiece(bar.ScrollUpButton)
+	HideBarPiece(bar.ScrollDownButton)
+	if bar.SetWidth then bar:SetWidth(6) end
+
+	local track = bar.Track
+	if track then
+		track:ClearAllPoints()
+		track:SetPoint("TOPLEFT", bar, "TOPLEFT", 1, 0)
+		track:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -1, 0)
+		if not track.Line then
+			local bg = track:CreateTexture(nil, "BACKGROUND")
+			bg:SetColorTexture(theme.muted[1], theme.muted[2], theme.muted[3], 0.28)
+			bg:SetWidth(2)
+			bg:SetPoint("TOP", 0, 0)
+			bg:SetPoint("BOTTOM", 0, 0)
+			track.Line = bg
+		end
+		local thumb = track.Thumb
+		if thumb then
+			for _, region in ipairs({ thumb:GetRegions() }) do
+				if region ~= thumb.Line and region.SetAlpha then region:SetAlpha(0) end
+			end
+			if not thumb.Line then
+				local t = thumb:CreateTexture(nil, "OVERLAY")
+				t:SetColorTexture(theme.muted[1], theme.muted[2], theme.muted[3], 0.95)
+				t:SetAllPoints()
+				thumb.Line = t
+			end
+			if thumb.SetWidth then thumb:SetWidth(4) end
+		end
+	elseif not bar.Line then
+		local bg = bar:CreateTexture(nil, "BACKGROUND")
+		bg:SetColorTexture(theme.muted[1], theme.muted[2], theme.muted[3], 0.28)
+		bg:SetWidth(2)
+		bg:SetPoint("TOP", 0, 0)
+		bg:SetPoint("BOTTOM", 0, 0)
+		bar.Line = bg
+		local tex = bar.GetThumbTexture and bar:GetThumbTexture()
+		if tex and tex.SetColorTexture then
+			tex:SetColorTexture(theme.muted[1], theme.muted[2], theme.muted[3], 0.95)
+		end
+	end
+end
+
+-- Put a ScrollFrameTemplate's bar in the gutter to the right of the rows.
+function UI.PlaceScrollBar(scroll)
+	local bar = scroll and scroll.ScrollBar
+	if not bar or not Theme.Get() then return end
+	UI.StyleScrollBar(bar)
+	bar:ClearAllPoints()
+	bar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 6, 0)
+	bar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 6, 0)
+end
+
 function UI.Tooltip(owner, title, body)
 	owner:HookScript("OnEnter", function(self)
 		local tip = GetAppropriateTooltip and GetAppropriateTooltip() or GameTooltip
@@ -35,7 +155,15 @@ function UI.Button(parent, text, width, onClick, primary)
 		b:SetFontString(fs)
 		b:SetText(text)
 		local r, g, bl = 1, 1, 1
-		if primary then r, g, bl = theme.onAccent[1], theme.onAccent[2], theme.onAccent[3] end
+		if primary then
+			r, g, bl = theme.onAccent[1], theme.onAccent[2], theme.onAccent[3]
+			-- GameFontHighlight draws a drop shadow. On the gold fill that shadow
+			-- muddies the dark letters. Polestar's button face is the same game
+			-- font with the shadow off.
+			local path, size = fs:GetFont()
+			fs:SetFont(path or "Fonts\\FRIZQT__.TTF", size or 12, "")
+			fs:SetShadowOffset(0, 0)
+		end
 		fs:SetTextColor(r, g, bl)
 		-- A disabled button says so in its label, dimmed like the game's own.
 		b:SetScript("OnDisable", function() fs:SetTextColor(0.5, 0.5, 0.5) end)
@@ -56,39 +184,24 @@ function UI.Button(parent, text, width, onClick, primary)
 	return b
 end
 
--- A pill switch drawn on the right of a CheckButton: gold when on, a dark track
--- when off, a light thumb that slides. The button is the hit target, so the whole
--- row toggles, the way Polestar's setting rows do. No art: the caps and the thumb
--- are the portrait mask over a flat texture. `Fill` is the thumb, so callers can
--- tell a drawn switch from the game's own checkbox.
+-- A pill switch on the right of a CheckButton. The round ends are in the texture:
+-- this client draws a mask as a square. Gold when on, dark when off, and the thumb
+-- slides. The whole row is the hit target. `Fill` is the thumb.
 function UI.PaintSwitch(b)
 	local theme = Theme.Get()
-	local h = 18
 	local holder = CreateFrame("Frame", nil, b)
-	holder:SetSize(38, h)
+	holder:SetSize(36, 16)
 	holder:SetPoint("RIGHT", -12, 0)
+	holder:EnableMouse(false) -- the row behind it receives the click
 	b.Switch = holder
-	local function cap(point)
-		local t = holder:CreateTexture(nil, "ARTWORK")
-		t:SetTexture("Interface\\Buttons\\WHITE8X8")
-		t:SetSize(h, h)
-		t:SetPoint(point, holder, point, 0, 0)
-		t:SetMask("Interface\\CharacterFrame\\TempPortraitAlphaMask")
-		return t
-	end
-	local left, right = cap("LEFT"), cap("RIGHT")
-	local mid = holder:CreateTexture(nil, "ARTWORK")
-	mid:SetTexture("Interface\\Buttons\\WHITE8X8")
-	mid:SetPoint("LEFT", holder, "LEFT", h / 2, 0)
-	mid:SetPoint("RIGHT", holder, "RIGHT", -h / 2, 0)
-	mid:SetHeight(h)
+	local track = holder:CreateTexture(nil, "ARTWORK")
+	track:SetAllPoints()
+	track:SetTexture(UI.LineIcon("switch-track"))
 	local knob = holder:CreateTexture(nil, "OVERLAY")
-	knob:SetTexture("Interface\\Buttons\\WHITE8X8")
+	knob:SetTexture(UI.LineIcon("switch-knob"))
 	knob:SetSize(12, 12)
-	knob:SetMask("Interface\\CharacterFrame\\TempPortraitAlphaMask")
 	knob:SetVertexColor(theme.knob[1], theme.knob[2], theme.knob[3], 1)
 	b.Fill = knob
-	b.Track = { left, mid, right }
 	-- A bare check button would draw the game's yellow tick. Keep the button, hide the tick.
 	local blank = b:CreateTexture(nil, "ARTWORK")
 	blank:SetColorTexture(0, 0, 0, 0)
@@ -97,9 +210,9 @@ function UI.PaintSwitch(b)
 	function b:Sync()
 		local on = self:GetChecked() and true or false
 		local c = on and theme.accent or theme.switchOff
-		for _, t in ipairs(self.Track) do t:SetVertexColor(c[1], c[2], c[3], c[4] or 1) end
+		track:SetVertexColor(c[1], c[2], c[3], c[4] or 1)
 		self.Fill:ClearAllPoints()
-		self.Fill:SetPoint(on and "RIGHT" or "LEFT", holder, on and "RIGHT" or "LEFT", on and -3 or 3, 0)
+		self.Fill:SetPoint(on and "RIGHT" or "LEFT", holder, on and "RIGHT" or "LEFT", on and -2 or 2, 0)
 	end
 	return b
 end
@@ -126,8 +239,17 @@ function UI.IconButton(parent, icon, size, tooltip, onClick)
 	b.Background = bg
 	local tex = b:CreateTexture(nil, "ARTWORK")
 	tex:SetPoint("CENTER")
-	tex:SetSize((size or 28) - 10, (size or 28) - 10)
-	if C_Texture.GetAtlasInfo(icon) then tex:SetAtlas(icon) else tex:SetTexture(icon) end
+	local line = theme and LINE_ICONS[icon]
+	if line then
+		-- No button plate: the stroke sits on the window, the way Polestar's toolbar does.
+		bg:SetColorTexture(0, 0, 0, 0)
+		tex:SetTexture(UI.LineIcon(line))
+		tex:SetVertexColor(theme.text[1], theme.text[2], theme.text[3], 1)
+		tex:SetSize((size or 28) - 6, (size or 28) - 6)
+	else
+		tex:SetSize((size or 28) - 10, (size or 28) - 10)
+		if C_Texture.GetAtlasInfo(icon) then tex:SetAtlas(icon) else tex:SetTexture(icon) end
+	end
 	b.Icon = tex
 	if theme then
 		local hl = Theme.Solid(b, theme.hover, "HIGHLIGHT")
@@ -162,9 +284,17 @@ function UI.Cycler(parent, width, onChange)
 		bg:SetColorTexture(0, 0, 0, 0.6)
 	end
 	local arrow = b:CreateTexture(nil, "ARTWORK")
-	arrow:SetAtlas("common-dropdown-a-button")
-	arrow:SetSize(22, 22)
-	arrow:SetPoint("RIGHT", -3, 0)
+	if theme then
+		arrow:SetTexture(UI.LineIcon("chevron-down"))
+		arrow:SetVertexColor(theme.muted[1], theme.muted[2], theme.muted[3], 1)
+		arrow:SetSize(12, 12)
+		arrow:SetPoint("RIGHT", -7, 0)
+		Theme.Edges(b, theme.hairline)
+	else
+		arrow:SetAtlas("common-dropdown-a-button")
+		arrow:SetSize(22, 22)
+		arrow:SetPoint("RIGHT", -3, 0)
+	end
 	b.Arrow = arrow
 	local hl = b:CreateTexture(nil, "HIGHLIGHT")
 	if theme then
@@ -268,6 +398,7 @@ local function EnsureList()
 		end
 	end)
 	list.Search = search
+	UI.UseLineSearch(search)
 
 	local box = CreateFrame("Frame", nil, list, "WowScrollBoxList")
 	local bar = CreateFrame("EventFrame", nil, list, "MinimalScrollBar")
@@ -285,13 +416,13 @@ local function EnsureList()
 			end
 			hl:SetAllPoints()
 			if theme then
-				-- The chosen row carries a gold bar down its left edge.
-				row.Bar = row:CreateTexture(nil, "ARTWORK")
-				Theme.Paint(row.Bar, theme.accent)
-				row.Bar:SetWidth(2)
-				row.Bar:SetPoint("TOPLEFT")
-				row.Bar:SetPoint("BOTTOMLEFT")
-				row.Bar:Hide()
+				-- A line check at the right edge, as Polestar's menus mark the choice.
+				row.Check = row:CreateTexture(nil, "ARTWORK")
+				row.Check:SetTexture(UI.LineIcon("check"))
+				row.Check:SetVertexColor(theme.text[1], theme.text[2], theme.text[3], 1)
+				row.Check:SetSize(12, 12)
+				row.Check:SetPoint("RIGHT", -8, 0)
+				row.Check:Hide()
 			else
 				row.Check = row:CreateTexture(nil, "ARTWORK")
 				row.Check:SetAtlas("common-icon-checkmark")
@@ -300,7 +431,7 @@ local function EnsureList()
 			end
 			row.Text = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 			row.Text:SetPoint("LEFT", theme and 10 or 22, 0)
-			row.Text:SetPoint("RIGHT", -4, 0)
+			row.Text:SetPoint("RIGHT", theme and -24 or -4, 0)
 			row.Text:SetJustifyH("LEFT")
 			row.Text:SetWordWrap(false)
 		end
@@ -322,7 +453,6 @@ local function EnsureList()
 		row.Text:SetPoint("LEFT", theme and 10 or 22, 0)
 		local selected = list.owner and list.owner.value == ed.value
 		if row.Check then row.Check:SetShown(selected) end
-		if row.Bar then row.Bar:SetShown(selected) end
 		row.Text:SetText(ed.label)
 		-- Gold stays on the selection bar. The label stays white, so a chosen row
 		-- reads the same way Polestar's menus do.
@@ -334,6 +464,7 @@ local function EnsureList()
 		row:SetScript("OnClick", function() UI.PickFromList(ed.value) end)
 	end)
 	ScrollUtil.InitScrollBoxListWithScrollBar(box, bar, view)
+	UI.StyleScrollBar(bar)
 	list.Box, list.Bar = box, bar
 
 	if not listed then
@@ -511,7 +642,8 @@ end
 
 function UI.SetGroupHeader(button, label, count, collapsed)
 	button.Text:SetText(string.format("%s  |cff9d9d9d(%d)|r", label, count))
-	button.Icon:SetAtlas(collapsed and "common-button-list-plus" or "common-button-list-minus", true)
+	local mark = collapsed and "common-button-list-plus" or "common-button-list-minus"
+	if not UI.SetIcon(button.Icon, mark, 12) then button.Icon:SetAtlas(mark, true) end
 end
 
 function UI.ProgressBar(parent)
@@ -519,9 +651,6 @@ function UI.ProgressBar(parent)
 	local holder
 	if theme then
 		holder = CreateFrame("Frame", nil, parent)
-		local bg = Theme.Solid(holder, theme.track)
-		bg:SetAllPoints()
-		Theme.Edges(holder, theme.hairline)
 	else
 		holder = CreateFrame("Frame", nil, parent, "BackdropTemplate")
 		holder:SetBackdrop({
@@ -533,12 +662,25 @@ function UI.ProgressBar(parent)
 		holder:SetBackdropColor(0, 0, 0, 0.75)
 		holder:SetBackdropBorderColor(0.75, 0.6, 0.3, 1)
 	end
-	local bar = CreateFrame("StatusBar", nil, holder)
-	-- A thin gold bar, like Polestar's progress line. The percent stays centered
-	-- on the holder so it doesn't sit inside the thin fill.
+	local barParent = holder
+	local text
 	if theme then
-		bar:SetPoint("TOPLEFT", 2, -9)
-		bar:SetPoint("BOTTOMRIGHT", -2, 9)
+		-- A solid track with the fill the same height, and the percent beside it,
+		-- the way Polestar draws a level bar. A hairline with the number on top
+		-- looks empty until the fill is almost full.
+		text = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		text:SetPoint("RIGHT", 0, 0)
+		local track = CreateFrame("Frame", nil, holder)
+		track:SetHeight(8)
+		track:SetPoint("LEFT", 0, 0)
+		track:SetPoint("RIGHT", text, "LEFT", -10, 0)
+		local bg = Theme.Solid(track, theme.panelAlt)
+		bg:SetAllPoints()
+		barParent = track
+	end
+	local bar = CreateFrame("StatusBar", nil, barParent)
+	if theme then
+		bar:SetAllPoints()
 	else
 		bar:SetPoint("TOPLEFT", 4, -4)
 		bar:SetPoint("BOTTOMRIGHT", -4, 4)
@@ -546,14 +688,16 @@ function UI.ProgressBar(parent)
 	bar:SetStatusBarTexture(theme and "Interface\\Buttons\\WHITE8X8" or "Interface\\TargetingFrame\\UI-StatusBar")
 	bar:SetStatusBarColor(0.1, 0.7, 0.15)
 	bar:SetMinMaxValues(0, 100)
-	-- The bar is its own frame, so it paints over the holder's text. A frame above it
-	-- keeps the percent readable.
-	local label = CreateFrame("Frame", nil, holder)
-	label:SetAllPoints()
-	label:EnableMouse(false)
-	label:SetFrameLevel(bar:GetFrameLevel() + 2)
-	local text = label:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	text:SetPoint("CENTER")
+	if not text then
+		-- The bar is its own frame, so it paints over the holder's text. A frame above it
+		-- keeps the percent readable.
+		local label = CreateFrame("Frame", nil, holder)
+		label:SetAllPoints()
+		label:EnableMouse(false)
+		label:SetFrameLevel(bar:GetFrameLevel() + 2)
+		text = label:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		text:SetPoint("CENTER")
+	end
 	holder.Bar, holder.Text = bar, text
 	function holder:SetPercent(p)
 		p = math.max(0, math.min(100, p or 0))

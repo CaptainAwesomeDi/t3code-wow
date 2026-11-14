@@ -100,8 +100,10 @@ function F:Create(right, header)
 	up.Icon = up:CreateTexture(nil, "ARTWORK")
 	up.Icon:SetSize(14, 14)
 	up.Icon:SetPoint("LEFT", 4, 0)
-	up.Icon:SetAtlas("common-icon-backarrow")
-	if not up.Icon:GetAtlas() then up.Icon:SetAtlas("common-dropdown-icon-back") end
+	if not UI.SetIcon(up.Icon, "common-icon-backarrow", 14) then
+		up.Icon:SetAtlas("common-icon-backarrow")
+		if not up.Icon:GetAtlas() then up.Icon:SetAtlas("common-dropdown-icon-back") end
+	end
 	up.Icon:SetRotation(-math.pi / 2)
 	up.Text = up:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 	up.Text:SetPoint("LEFT", up.Icon, "RIGHT", 6, 0)

@@ -104,6 +104,7 @@ local DEFAULTS = {
 		windowScale = "auto",
 		padChord = "auto",
 		theme = "classic", -- classic (the game's own look) | modern (flat, dark, gold accent)
+		listWidth = 300, -- the thread list, dragged wider or narrower from its edge
 	},
 	drafts = {},
 	models = {}, -- project id -> the model last picked for new threads there

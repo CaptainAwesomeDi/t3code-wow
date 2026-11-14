@@ -203,6 +203,7 @@ function S:CreateModern(page)
 	local well = Theme.Solid(search, theme.track, "ARTWORK")
 	well:SetAllPoints()
 	Theme.Edges(search, theme.hairline)
+	UI.UseLineSearch(search)
 	-- The template's own hint sits under the flat well. Ours reads "Search settings".
 	if search.Instructions then search.Instructions:Hide() end
 	local hint = search:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -277,6 +278,7 @@ function S:CreateModern(page)
 	local content = CreateFrame("Frame", nil, scroll)
 	content:SetSize(400, 40)
 	scroll:SetScrollChild(content)
+	UI.PlaceScrollBar(scroll)
 	local card = Theme.Solid(content, theme.panel)
 	card:SetAllPoints()
 	Theme.Edges(content, theme.hairline)
@@ -307,8 +309,8 @@ function S:CreateModern(page)
 		b:SetChecked(ns.db.settings[c.key] and true or false)
 		b:Sync()
 		b:SetScript("OnClick", function(self)
-			-- A plain check button doesn't toggle itself; the template does.
-			self:SetChecked(not self:GetChecked())
+			-- A check button toggles itself before this runs, same as the game's template.
+			-- Flipping again put the switch back where it started.
 			self:Sync()
 			local on = self:GetChecked() and true or false
 			ns.db.settings[c.key] = on

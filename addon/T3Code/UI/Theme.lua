@@ -10,12 +10,12 @@ local _, ns = ...
 local Theme = {}
 ns.Theme = Theme
 
--- Polestar's Dusk neutrals with Polestar's own honey gold, which sits quieter on
--- the dark ground than the game's saturated yellow.
+-- Polestar's default Dusk ground, at the same opacity as its windows
+-- (ui.bgOpacity 0.94). Night was the darker solid colour we had before.
 Theme.MODERN = {
-	windowBg = { 0.039, 0.051, 0.086, 1.00 }, -- #0a0d16 the window's ground
-	panel =    { 0.110, 0.133, 0.204, 1.00 }, -- #1c2234 insets, the composer
-	panelAlt = { 0.137, 0.165, 0.247, 1.00 }, -- #232a3f buttons and dropdowns
+	windowBg = { 0.095, 0.115, 0.178, 0.94 }, -- dusk bg, the world shows through
+	panel =    { 0.110, 0.133, 0.203, 0.98 }, -- cards and the composer
+	panelAlt = { 0.139, 0.166, 0.249, 1.00 }, -- buttons and dropdowns
 	overlay =  { 0.055, 0.071, 0.110, 1.00 }, -- #0e1220 popups over everything
 	hairline = { 1.000, 1.000, 1.000, 0.10 }, -- borders and rules
 	hover =    { 1.000, 1.000, 1.000, 0.07 }, -- a row under the mouse

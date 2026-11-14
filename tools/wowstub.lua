@@ -101,7 +101,11 @@ local SETTERS = {
 	CreateTexture = function(self) return Stub.NewFrame("Texture", self) end,
 	CreateFontString = function(self, _, _, font) local f = Stub.NewFrame("FontString", self) return f end,
 	CreateMaskTexture = function(self) return Stub.NewFrame("Texture", self) end,
-	Click = function(self) if self._scripts.OnClick then self._scripts.OnClick(self, "LeftButton") end end,
+	-- A CheckButton flips before OnClick, as the client does.
+	Click = function(self)
+		if self._kind == "CheckButton" then self._checked = not self._checked end
+		if self._scripts.OnClick then self._scripts.OnClick(self, "LeftButton") end
+	end,
 	-- ScrollBox
 	SetDataProvider = function(self, dp)
 		self._dp = dp

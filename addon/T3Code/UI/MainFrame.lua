@@ -11,8 +11,14 @@ ns.Main = M
 local WIDTH, HEIGHT = 940, 640
 local MIN_W, MIN_H = 760, 480
 local LIST_W = 300
+local LIST_MIN = 180
+local LIST_KEEP = 420 -- the conversation keeps at least this much of the window
 local COMPOSER_H = 92
-local BAND_H = 34
+local BAND_H = 22 -- one short row, the way Polestar's window bar is
+-- Polestar leaves about 16px under its footer. The classic frame keeps the
+-- buttons in its own bottom border (4px). The pages end above the row.
+local BAR_Y_MODERN = 16
+local BAR_CLEAR = 52
 
 M.page = "threads"
 M.mode = "thread" -- "thread" | "new"
@@ -38,13 +44,25 @@ local function CreateResizeGrip(f)
 		f:SetSize(w, h)
 		ns.db.settings.windowSize = { w, h }
 	end)
-	-- Three small diagonal rules, the usual corner grip, drawn in code.
-	for i = 0, 2 do
-		local rule = grip:CreateTexture(nil, "ARTWORK")
-		rule:SetColorTexture(1, 1, 1, 0.35)
-		rule:SetSize(7, 1)
-		rule:SetPoint("BOTTOMLEFT", 2 + i * 4, 3 + i * 4)
-		rule:SetRotation(math.rad(-45))
+	local theme = Theme.Get()
+	if theme then
+		-- Three strokes, shorter toward the corner, so the mark reads as a triangle.
+		grip:SetSize(18, 18)
+		local mark = grip:CreateTexture(nil, "ARTWORK")
+		mark:SetAllPoints()
+		mark:SetTexture(UI.LineIcon("grip"))
+		mark:SetVertexColor(theme.muted[1], theme.muted[2], theme.muted[3], 1)
+	else
+		-- The game's own corner grip. Drawn lines rotate into a red square on this
+		-- client and sit badly on the gold frame.
+		grip:SetSize(16, 16)
+		grip:ClearAllPoints()
+		grip:SetPoint("BOTTOMRIGHT", -6, 6)
+		local mark = grip:CreateTexture(nil, "ARTWORK")
+		mark:SetAllPoints()
+		mark:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+		grip:SetScript("OnEnter", function() mark:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight") end)
+		grip:SetScript("OnLeave", function() mark:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up") end)
 	end
 	f.ResizeGrip = grip
 end
@@ -68,13 +86,18 @@ local function CreateSideTab(f, index, icon, tooltip, page)
 		bar:SetPoint("TOPLEFT")
 		bar:SetPoint("BOTTOMLEFT")
 		bar:Hide()
-		function tab:SetChecked(on) bar:SetShown(on and true or false) end
+		function tab:SetChecked(on)
+			bar:SetShown(on and true or false)
+			local c = on and theme.text or theme.muted
+			self.Icon:SetVertexColor(c[1], c[2], c[3], 1)
+		end
 		local hl = Theme.Solid(tab, theme.hover, "HIGHLIGHT")
 		hl:SetAllPoints()
 		tab.Icon = tab:CreateTexture(nil, "ARTWORK")
-		tab.Icon:SetSize(22, 22)
+		tab.Icon:SetSize(18, 18)
 		tab.Icon:SetPoint("CENTER")
 		tab.Icon:SetTexture(icon)
+		tab.Icon:SetVertexColor(theme.muted[1], theme.muted[2], theme.muted[3], 1)
 		UI.Tooltip(tab, tooltip)
 		tab:SetScript("OnClick", function() M:ShowPage(page) end)
 	else
@@ -110,9 +133,9 @@ function M:Create()
 	f:Hide()
 	f:SetTitle("T3 Code")
 	f:SetPortraitToAsset(ns.media .. "portrait")
-	-- The modern design hides the game's ornate frame and paints its own: a dark
-	-- ground, a hairline border, the accent running along the top edge and a title
-	-- band, as Polestar's windows do, with content sitting on the ground itself.
+	-- The modern design hides the game's ornate frame and paints its own: Dusk
+	-- at Polestar's window opacity, a hairline border and a title band, with
+	-- content sitting on that same ground.
 	local theme = Theme.Get()
 	if theme then
 		-- By name: a piece the template doesn't have must not stop the loop.
@@ -124,11 +147,7 @@ function M:Create()
 		f.ModernBg = Theme.Solid(f, theme.windowBg)
 		f.ModernBg:SetAllPoints()
 		Theme.Edges(f, theme.hairline)
-		f.ModernRim = Theme.Solid(f, theme.accent, "ARTWORK")
-		f.ModernRim:SetHeight(2)
-		f.ModernRim:SetPoint("TOPLEFT")
-		f.ModernRim:SetPoint("TOPRIGHT")
-		f.ModernBand = Theme.Solid(f, theme.panel)
+		f.ModernBand = Theme.Solid(f, theme.windowBg)
 		f.ModernBand:SetHeight(BAND_H)
 		f.ModernBand:SetPoint("TOPLEFT")
 		f.ModernBand:SetPoint("TOPRIGHT")
@@ -137,20 +156,46 @@ function M:Create()
 		f.ModernBandRule:SetPoint("TOPLEFT", 0, -BAND_H)
 		f.ModernBandRule:SetPoint("TOPRIGHT", 0, -BAND_H)
 		if f.Inset then
-			-- The pages sit on the window's own ground, not on a raised panel.
-			f.ModernInset = Theme.Solid(f.Inset, theme.windowBg)
-			f.ModernInset:SetAllPoints()
+			-- One ground only. A second fill here would stack the opacity and
+			-- make the chat solid. Hide the template's own plate so the window
+			-- ground shows through.
+			if f.Inset.Bg then f.Inset.Bg:Hide() end
+			-- The template's inset runs down into the button row. Lift its bottom
+			-- edge so the list and the message box stop above Refresh and Send.
+			local n = f.Inset.GetNumPoints and f.Inset:GetNumPoints() or 0
+			local pts, sawBottom = {}, false
+			local topCap = -(BAND_H + 2)
+			for i = 1, n do
+				local point, relTo, relPoint, x, y = f.Inset:GetPoint(i)
+				if point == "BOTTOM" or point == "BOTTOMLEFT" or point == "BOTTOMRIGHT" then
+					sawBottom = true
+					y = math.max(y or 0, BAR_CLEAR)
+				elseif point == "TOP" or point == "TOPLEFT" or point == "TOPRIGHT" then
+					-- The portrait frame starts the pages far below the title. The thin
+					-- bar doesn't need that gap.
+					y = math.max(y or topCap, topCap)
+				end
+				pts[i] = { point, relTo, relPoint, x, y }
+			end
+			if sawBottom then
+				f.Inset:ClearAllPoints()
+				for _, p in ipairs(pts) do
+					if p[1] then f.Inset:SetPoint(p[1], p[2], p[3], p[4] or 0, p[5] or 0) end
+				end
+			else
+				f.Inset:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -2, BAR_CLEAR)
+			end
 		end
-		f.ModernTitle = f:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-		f.ModernTitle:SetPoint("TOPLEFT", 14, -7)
+		f.ModernTitle = f:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+		f.ModernTitle:SetPoint("LEFT", f, "TOPLEFT", 12, -(BAND_H / 2))
 		f.ModernTitle:SetText("T3 Code")
 		-- White, like Polestar's wordmark. Gold stays on the rim and on what's selected.
 		Theme.SetText(f.ModernTitle, theme.text)
 		-- A quiet × in the band's corner, no button chrome.
 		local close = CreateFrame("Button", nil, f)
-		close:SetSize(24, 24)
-		close:SetPoint("TOPRIGHT", -2, -5)
-		close.Text = close:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
+		close:SetSize(16, 16)
+		close:SetPoint("TOPRIGHT", -6, -3)
+		close.Text = close:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
 		close.Text:SetPoint("CENTER", 0, 0)
 		close.Text:SetText("×")
 		local closeHl = Theme.Solid(close, theme.hover, "HIGHLIGHT")
@@ -192,31 +237,54 @@ function M:Create()
 	f.Status:SetPoint("TOP", f.Subtitle, "BOTTOM", 0, -2)
 	f.Status:SetWidth(WIDTH - 220)
 	if theme then
-		-- Under the title band, reading from the left like Polestar's titles, and
-		-- one size down so both lines clear the content that starts below.
-		f.Subtitle:SetFontObject("GameFontHighlight")
+		-- Same row as the title, the way Polestar keeps the guide name in the bar
+		-- instead of stacking more lines under it.
+		f.Subtitle:SetFontObject("GameFontHighlightSmall")
 		f.Subtitle:ClearAllPoints()
-		f.Subtitle:SetPoint("TOPLEFT", 14, -(BAND_H + 8))
+		f.Subtitle:SetPoint("LEFT", f.ModernTitle, "RIGHT", 12, 0)
 		f.Subtitle:SetJustifyH("LEFT")
+		f.Subtitle:SetWordWrap(false)
+		f.Status:SetFontObject("GameFontHighlightSmall")
 		f.Status:ClearAllPoints()
-		f.Status:SetPoint("TOPLEFT", f.Subtitle, "BOTTOMLEFT", 0, -1)
-		f.Status:SetJustifyH("LEFT")
+		f.Status:SetJustifyH("RIGHT")
+		f.Status:SetWordWrap(false)
+		f.Status:SetWidth(240)
 	end
 	-- The centered texts are sized for the default window; keep up with a resize.
 	f:HookScript("OnSizeChanged", ns.Safe(function(self)
+		if Theme.Get() then
+			local room = math.max(80, self:GetWidth() - 320)
+			self.Subtitle:SetWidth(math.min(280, room))
+			M:ApplyListWidth(ns.db.settings.listWidth)
+			return
+		end
+		M:ApplyListWidth(ns.db.settings.listWidth)
 		local w = math.max(200, self:GetWidth() - 220)
 		self.Subtitle:SetWidth(w)
 		self.Status:SetWidth(w)
 	end))
 
 	-- Collapse the thread list (arrow under the close button).
-	f.SidebarToggle = UI.IconButton(f, "common-icon-backarrow", 24, "Hide the thread list", function() M:ToggleSidebar() end)
-	if not f.SidebarToggle.Icon:GetAtlas() then f.SidebarToggle.Icon:SetAtlas("common-dropdown-icon-back") end
+	f.SidebarToggle = UI.IconButton(f, "common-icon-backarrow", theme and 18 or 24, "Hide the thread list", function() M:ToggleSidebar() end)
+	-- A line icon has no atlas. The fallback is only for the classic button, whose
+	-- first atlas is missing on some clients. Applying it here replaced the chevron
+	-- with the game's yellow triangle.
+	if not Theme.Get() and not f.SidebarToggle.Icon:GetAtlas() then f.SidebarToggle.Icon:SetAtlas("common-dropdown-icon-back") end
 	f.SidebarToggle:SetPoint("TOPRIGHT", -10, -32)
 	if theme then
-		-- In the modern band, beside the close.
+		-- In the modern band, beside the close. The drag strip used to run across
+		-- this button, so the chevron itself moved the window and only the empty
+		-- edge of the button toggled the list.
 		f.SidebarToggle:ClearAllPoints()
-		f.SidebarToggle:SetPoint("TOPRIGHT", -32, -5)
+		f.SidebarToggle:SetPoint("TOPRIGHT", -28, -2)
+		-- Flush to the chevron, not stretched across the bar.
+		f.Status:SetPoint("RIGHT", f.SidebarToggle, "LEFT", -8, 0)
+		drag:ClearAllPoints()
+		drag:SetPoint("TOPLEFT", 8, 0)
+		drag:SetPoint("TOPRIGHT", -52, 0)
+		drag:SetHeight(BAND_H)
+		f.SidebarToggle:SetFrameLevel(drag:GetFrameLevel() + 5)
+		if f.ModernClose then f.ModernClose:SetFrameLevel(drag:GetFrameLevel() + 5) end
 	end
 
 	-- Shown when the session's live updates are running low: a reload frees them.
@@ -241,9 +309,9 @@ function M:Create()
 
 	-- Side tabs.
 	f.Tabs = {
-		CreateSideTab(f, 1, ns.media .. "icon", "Threads", "threads"),
-		CreateSideTab(f, 2, "Interface\\Icons\\INV_Scroll_08", "Usage limits", "usage"),
-		CreateSideTab(f, 3, "Interface\\Icons\\INV_Misc_Gear_01", "Settings", "settings"),
+		CreateSideTab(f, 1, theme and UI.LineIcon("threads") or (ns.media .. "icon"), "Threads", "threads"),
+		CreateSideTab(f, 2, theme and UI.LineIcon("chart") or "Interface\\Icons\\INV_Scroll_08", "Usage limits", "usage"),
+		CreateSideTab(f, 3, theme and UI.LineIcon("gear") or "Interface\\Icons\\INV_Misc_Gear_01", "Settings", "settings"),
 	}
 
 	f:SetScript("OnShow", ns.Safe(function()
@@ -269,12 +337,34 @@ function M:Create()
 	return f
 end
 
+function M:ListWidth()
+	local w = (ns.db and ns.db.settings.listWidth) or LIST_W
+	return math.max(LIST_MIN, w)
+end
+
+-- The thread list's width, kept between a readable minimum and whatever still
+-- leaves the conversation room. Moves the Back button with it.
+function M:ApplyListWidth(w)
+	local f = self.frame
+	local page = f and f.Pages and f.Pages.threads
+	if not page or not page.Left then return end
+	local frameW = f:GetWidth() or WIDTH
+	local maxW = math.max(LIST_MIN, frameW - LIST_KEEP)
+	w = math.max(LIST_MIN, math.min(maxW, math.floor(w or LIST_W)))
+	ns.db.settings.listWidth = w
+	page.Left:SetWidth(w)
+	if page.Left:IsShown() and f.Bar and f.Bar.Back then
+		local barY = Theme.Get() and BAR_Y_MODERN or 4
+		f.Bar.Back:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", w + 18, barY)
+	end
+end
+
 function M:CreateThreadsPage(page)
 	-- Left: project filter + thread list.
 	local left = CreateFrame("Frame", nil, page)
 	left:SetPoint("TOPLEFT")
 	left:SetPoint("BOTTOMLEFT")
-	left:SetWidth(LIST_W)
+	left:SetWidth(self:ListWidth())
 	page.Left = left
 
 	local divider = page:CreateTexture(nil, "ARTWORK")
@@ -292,6 +382,41 @@ function M:CreateThreadsPage(page)
 	divider:SetPoint("TOPLEFT", left, "TOPRIGHT", 0, -2)
 	divider:SetPoint("BOTTOMLEFT", left, "BOTTOMRIGHT", 0, 2)
 	page.Divider = divider
+
+	-- A wider invisible grip on the divider: drag it to make the list wider.
+	local split = CreateFrame("Frame", nil, page)
+	split:SetWidth(7)
+	split:SetPoint("TOP", left, "TOPRIGHT", 0, 0)
+	split:SetPoint("BOTTOM", left, "BOTTOMRIGHT", 0, 0)
+	split:SetFrameLevel((page:GetFrameLevel() or 1) + 5)
+	split:EnableMouse(true)
+	local hint = split:CreateTexture(nil, "BACKGROUND")
+	if theme then
+		Theme.Paint(hint, theme.hover)
+	else
+		hint:SetColorTexture(1, 0.82, 0, 0.45)
+	end
+	hint:SetAllPoints()
+	hint:Hide()
+	split:SetScript("OnEnter", function() hint:Show() end)
+	split:SetScript("OnLeave", function(self) if not self.dragging then hint:Hide() end end)
+	split:SetScript("OnMouseDown", function(self, button)
+		if button ~= "LeftButton" then return end
+		self.dragging = true
+		hint:Show()
+		self:SetScript("OnUpdate", function()
+			local scale = page:GetEffectiveScale() or 1
+			local x = GetCursorPosition() / scale
+			local origin = page:GetLeft() or 0
+			M:ApplyListWidth(x - origin)
+		end)
+	end)
+	split:SetScript("OnMouseUp", function(self)
+		self.dragging = false
+		self:SetScript("OnUpdate", nil)
+		if not self:IsMouseOver() then hint:Hide() end
+	end)
+	page.Split = split
 
 	ns.ThreadList:Create(left)
 
@@ -420,14 +545,15 @@ function M:CreateButtonBar(f)
 		ns.Transport:Send("ping")
 		PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
 	end)
-	bar.Refresh:SetPoint("BOTTOMLEFT", 6, 4)
+	local barY = Theme.Get() and BAR_Y_MODERN or 4
+	bar.Refresh:SetPoint("BOTTOMLEFT", 6, barY)
 	UI.Tooltip(bar.Refresh, "Refresh", "Ask the bridge for a fresh update now.")
 
 	bar.New = UI.Button(f, "New Thread", 130, function() M:StartNewThread() end)
 	bar.New:SetPoint("LEFT", bar.Refresh, "RIGHT", 60, 0)
 
 	bar.Back = UI.Button(f, "Back", 110, function() M:Back() end)
-	bar.Back:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", LIST_W + 18, 4)
+	bar.Back:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", self:ListWidth() + 18, barY)
 
 	bar.Stop = UI.IconButton(f, "common-icon-redx", 26, "Stop the agent", function()
 		if ns.viewId then
@@ -483,7 +609,7 @@ function M:CreateButtonBar(f)
 	end)
 
 	bar.Send = UI.Button(f, "Send", 110, function() M:Send() end, true)
-	bar.Send:SetPoint("BOTTOMRIGHT", -26, 4) -- clear of the resize grip
+	bar.Send:SetPoint("BOTTOMRIGHT", -26, barY) -- clear of the resize grip
 	f.Bar = bar
 end
 
@@ -512,6 +638,7 @@ function M:ToggleSidebar(show)
 	if show == nil then show = not page.Left:IsShown() end
 	page.Left:SetShown(show)
 	page.Divider:SetShown(show)
+	if page.Split then page.Split:SetShown(show) end
 	page.Right:ClearAllPoints()
 	if show then
 		page.Right:SetPoint("TOPLEFT", page.Left, "TOPRIGHT", 4, 0)
@@ -522,10 +649,11 @@ function M:ToggleSidebar(show)
 	self.frame.Bar.Refresh:SetShown(show)
 	self.frame.Bar.New:SetShown(show)
 	self.frame.Bar.Back:ClearAllPoints()
+	local barY = Theme.Get() and BAR_Y_MODERN or 4
 	if show then
-		self.frame.Bar.Back:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", LIST_W + 18, 4)
+		self.frame.Bar.Back:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", LIST_W + 18, barY)
 	else
-		self.frame.Bar.Back:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", 6, 4)
+		self.frame.Bar.Back:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", 6, barY)
 	end
 	self.frame.SidebarToggle.Icon:SetRotation(show and 0 or math.pi)
 	ns.Transcript:Relayout()
@@ -917,6 +1045,7 @@ function M:ApplyTheme()
 	ns.Gamepad:ResetCursor()
 	UI.ResetList()
 	ns.Toasts:ApplyTheme()
+	if ns.Tracker then ns.Tracker:Refresh() end
 	self:Create()
 	self:LoadDraft()
 	self:ShowPage(page)
