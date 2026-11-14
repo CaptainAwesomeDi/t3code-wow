@@ -43,21 +43,41 @@ function UI.SetIcon(tex, icon, size)
 	if size then tex:SetSize(size, size) end
 end
 
--- The search box template brings the game's magnifier. Cover it with the line icon.
+-- The search box template brings the game's magnifier, and its "Search" hint is
+-- drawn from the left edge, so the word sits under the icon.
+local SEARCH_INSET = 30
+
 function UI.UseLineSearch(search)
 	local theme = Theme.Get()
 	if not theme or search.LineIcon then return end
-	if search.searchIcon then search.searchIcon:Hide() end
+	search.lineInset = SEARCH_INSET
+	if search.searchIcon then
+		search.searchIcon:Hide()
+		search.searchIcon:SetAlpha(0)
+	end
 	local icon = search:CreateTexture(nil, "OVERLAY")
 	icon:SetTexture(UI.LineIcon("search"))
 	icon:SetSize(13, 13)
-	icon:SetPoint("LEFT", 6, 0)
+	icon:SetPoint("LEFT", 10, 0)
 	icon:SetVertexColor(theme.muted[1], theme.muted[2], theme.muted[3], 1)
 	search.LineIcon = icon
+	search:SetTextInsets(SEARCH_INSET, 8, 0, 0)
+	local hint = search.Instructions
+	if hint then
+		hint:ClearAllPoints()
+		hint:SetPoint("LEFT", SEARCH_INSET, 0)
+		hint:SetPoint("RIGHT", -8, 0)
+		hint:SetJustifyH("LEFT")
+		Theme.SetText(hint, theme.muted)
+		if hint.SetDrawLayer then hint:SetDrawLayer("OVERLAY") end
+	end
 	-- The template's own magnifier is an atlas texture on the box. Ours replaces it.
 	for _, region in ipairs({ search:GetRegions() }) do
-		if region ~= icon and region.GetAtlas and region:GetAtlas() then region:Hide() end
+		if region ~= icon and region ~= hint and region.GetAtlas and region:GetAtlas() then region:Hide() end
 	end
+	search:HookScript("OnTextChanged", function(box)
+		if box.searchIcon then box.searchIcon:Hide() end
+	end)
 end
 
 -- A thin track and thumb for the modern design. The game's bar is a wide thumb
