@@ -114,7 +114,8 @@ local function InitNote(frame, ed)
 	frame.Text:SetText(text)
 	local theme = ns.Theme.Get()
 	if theme then ns.Theme.SetText(frame.Text, theme.text) end
-	frame.Icon:SetAtlas(ed.icon or "common-icon-forwardarrow")
+	local mark = ed.icon or "common-icon-forwardarrow"
+	if not UI.SetIcon(frame.Icon, mark, 16) then frame.Icon:SetAtlas(mark) end
 	if ed.spin then frame.Anim:Play() else frame.Anim:Stop() end
 end
 
@@ -164,11 +165,27 @@ local function InitOption(button, ed)
 		end
 	else
 		button.Bullet:SetTexture("Interface\\Buttons\\WHITE8X8")
-		button.Bullet:SetVertexColor(0.9, 0.9, 0.9)
-		button.Bullet:SetSize(7, 7)
+		if theme then
+			-- A short gold mark. A white square sat in the same colour as the words.
+			ns.Theme.Paint(button.Bullet, theme.accent)
+			button.Bullet:SetSize(3, 10)
+		else
+			button.Bullet:SetVertexColor(0.9, 0.9, 0.9)
+			button.Bullet:SetSize(7, 7)
+		end
 	end
 	button.Label:SetText(ed.label)
-	if theme or ed.primary then button.Label:SetTextColor(1, 1, 1) else button.Label:SetTextColor(NORMAL_FONT_COLOR:GetRGB()) end
+	if theme then
+		-- GameFontNormal's shadow is light, so white letters disappeared into it.
+		local path, size = button.Label:GetFont()
+		button.Label:SetFont(path or "Fonts\\FRIZQT__.TTF", size or 12, "")
+		button.Label:SetShadowOffset(0, 0)
+		ns.Theme.SetText(button.Label, ed.primary and theme.text or theme.muted)
+	elseif ed.primary then
+		button.Label:SetTextColor(1, 1, 1)
+	else
+		button.Label:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
+	end
 	button:SetScript("OnClick", function()
 		PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
 		ed.onClick()
@@ -205,6 +222,7 @@ function T:Create(parent, header, composer)
 	end)
 	view:SetElementExtentCalculator(function(_, ed) return ed.height or 24 end)
 	ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
+	UI.StyleScrollBar(scrollBar)
 	self.scrollBox, self.scrollBar, self.view = scrollBox, scrollBar, view
 
 	scrollBox:SetScript("OnSizeChanged", function() T:Relayout() end)

@@ -14,6 +14,7 @@ function U:Create(page)
 	local content = CreateFrame("Frame", nil, scroll)
 	content:SetSize(560, 10)
 	scroll:SetScrollChild(content)
+	UI.PlaceScrollBar(scroll)
 	scroll:SetScript("OnSizeChanged", function(_, w) content:SetWidth(w) end)
 	self.scroll, self.content = scroll, content
 	self.pool = { header = {}, row = {} }

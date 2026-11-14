@@ -210,6 +210,7 @@ function L:Create(parent)
 		local well = ns.Theme.Solid(search, theme.track, "ARTWORK")
 		well:SetAllPoints()
 		ns.Theme.Edges(search, theme.hairline)
+		ns.UI.UseLineSearch(search)
 	end
 	search:HookScript("OnTextChanged", function(box)
 		L.query = strtrim(box:GetText() or ""):lower()
@@ -248,6 +249,7 @@ function L:Create(parent)
 		return 46
 	end)
 	ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
+	ns.UI.StyleScrollBar(scrollBar)
 	self.scrollBox, self.scrollBar, self.view = scrollBox, scrollBar, view
 end
 
