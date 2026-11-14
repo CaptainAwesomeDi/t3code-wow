@@ -207,7 +207,7 @@ function S:CreateModern(page)
 	-- The template's own hint sits under the flat well. Ours reads "Search settings".
 	if search.Instructions then search.Instructions:Hide() end
 	local hint = search:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	hint:SetPoint("LEFT", 22, 0)
+	hint:SetPoint("LEFT", search.lineInset or 30, 0)
 	hint:SetText("Search settings")
 	Theme.SetText(hint, theme.muted)
 	search.Hint = hint

@@ -1245,6 +1245,13 @@ do
 	check(f.CloseButton == nil or f.CloseButton._shown == false, "the template's close button is hidden in modern")
 	check(f.NineSlice and f.NineSlice._shown == false, "the game's ornate border is hidden")
 	check(ns.Settings.checks[1].Fill ~= nil and ns.Settings.checks[1].Sync ~= nil, "modern settings use a drawn switch")
+	local search = ns.ThreadList.search
+	check(search and search._insets and search._insets[1] >= 28, "the search text starts clear of the icon")
+	local hintX
+	for _, pt in ipairs(search.Instructions and search.Instructions._points or {}) do
+		if pt[1] == "LEFT" and type(pt[2]) == "number" then hintX = pt[2] end
+	end
+	check(hintX and hintX >= 28, "the search hint starts clear of the icon")
 	local savedTrackerThreads = ns.Store.data.threads
 	ns.Store.data.threads = { { id = "fin", title = "Improve Polestar UI Design", s = "open", un = true, u = time(), p = "p" } }
 	ns.Tracker:Refresh()

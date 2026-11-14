@@ -86,6 +86,7 @@ local SETTERS = {
 	SetPoint = function(self, point, rel, ...) self._points = self._points or {} table.insert(self._points, { point, rel, ... }) end,
 	ClearAllPoints = function(self) self._points = {} end,
 	SetColorTexture = function(self, r, g, b) self._color = { r, g, b } end,
+	SetTextInsets = function(self, left, right, top, bottom) self._insets = { left, right, top, bottom } end,
 	SetScript = function(self, name, fn) self._scripts[name] = fn end,
 	HookScript = function(self, name, fn)
 		local old = self._scripts[name]
@@ -179,6 +180,7 @@ local TEMPLATE_CHILDREN = {
 	LargeSideTabButtonTemplate = { "Icon", "SelectedTexture" },
 	UICheckButtonTemplate = { "Text" },
 	ObjectiveTrackerModuleHeaderTemplate = { "Text", "MinimizeButton", "Background" },
+	SearchBoxTemplate = { "Instructions", "searchIcon" },
 }
 
 -- The strip's cell values (0..7) as currently drawn, in order.
