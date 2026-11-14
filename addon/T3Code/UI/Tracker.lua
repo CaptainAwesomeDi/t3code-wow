@@ -1,7 +1,7 @@
 -- A "T3 Code" section beside the objective tracker: what's running, what needs
 -- you, and what just finished. Click a line to open that thread. Classic keeps
 -- the tracker's own header. Modern is a dusk card on the same ground as the
--- window, with gold only on a thread that needs you.
+-- window, with the accent only on a thread that needs you.
 
 local _, ns = ...
 local Theme = ns.Theme

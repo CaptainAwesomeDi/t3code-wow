@@ -20,7 +20,10 @@ ns.COLORS = {
 }
 
 function ns.Color(key, text)
-	return "|c" .. (ns.COLORS[key] or key) .. tostring(text) .. "|r"
+	local hex = ns.COLORS[key] or key
+	-- In the modern window, gold is the accent. Chat keeps COLORS.gold.
+	if key == "gold" and ns.Theme and ns.Theme.Get() then hex = ns.Theme.ACCENT_HEX end
+	return "|c" .. hex .. tostring(text) .. "|r"
 end
 
 ---------------------------------------------------------------------------
@@ -103,7 +106,8 @@ local DEFAULTS = {
 		quietInstances = true,
 		windowScale = "auto",
 		padChord = "auto",
-		theme = "classic", -- classic (the game's own look) | modern (flat, dark, gold accent)
+		theme = "classic", -- classic (the game's own look) | modern (flat, dark)
+		accent = "verdigris", -- verdigris | ice | copper | gold, the modern window only
 		listWidth = 300, -- the thread list, dragged wider or narrower from its edge
 	},
 	drafts = {},
@@ -175,7 +179,8 @@ end
 
 function ns.Print(...)
 	local msg = strjoin(" ", tostringall(...))
-	DEFAULT_CHAT_FRAME:AddMessage(ns.Color("gold", "T3 Code") .. ": " .. msg)
+	-- The chat frame stays on the game's gold, so a line from here matches the chat around it.
+	DEFAULT_CHAT_FRAME:AddMessage("|c" .. ns.COLORS.gold .. "T3 Code|r: " .. msg)
 end
 
 function ns.InCombat()

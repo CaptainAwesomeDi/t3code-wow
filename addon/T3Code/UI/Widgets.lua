@@ -7,7 +7,7 @@ local Theme = ns.Theme
 local UI = {}
 ns.UI = UI
 
--- Line icons drawn for the modern design, in the same stroke as Polestar's set.
+-- Line icons drawn for the modern design.
 -- The classic design keeps the game's own atlases and item icons.
 local LINE_ICONS = {
 	["common-icon-backarrow"] = "chevron-left",
@@ -137,14 +137,22 @@ function UI.StyleScrollBar(bar)
 	end
 end
 
--- Put a ScrollFrameTemplate's bar in the gutter to the right of the rows.
+-- The template's bar is a black trough with arrow buttons. The modern pages
+-- scroll with the wheel instead, so that bar stays hidden.
 function UI.PlaceScrollBar(scroll)
 	local bar = scroll and scroll.ScrollBar
 	if not bar or not Theme.Get() then return end
-	UI.StyleScrollBar(bar)
-	bar:ClearAllPoints()
-	bar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 6, 0)
-	bar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 6, 0)
+	bar:Hide()
+	if bar.EnableMouse then bar:EnableMouse(false) end
+	bar:HookScript("OnShow", function(self) self:Hide() end)
+	scroll:EnableMouseWheel(true)
+	scroll:SetScript("OnMouseWheel", function(self, delta)
+		local range = self:GetVerticalScrollRange() or 0
+		local cur = self:GetVerticalScroll() or 0
+		local y = cur - (delta or 0) * 48
+		if y < 0 then y = 0 elseif y > range then y = range end
+		self:SetVerticalScroll(y)
+	end)
 end
 
 function UI.Tooltip(owner, title, body)
@@ -177,9 +185,8 @@ function UI.Button(parent, text, width, onClick, primary)
 		local r, g, bl = 1, 1, 1
 		if primary then
 			r, g, bl = theme.onAccent[1], theme.onAccent[2], theme.onAccent[3]
-			-- GameFontHighlight draws a drop shadow. On the gold fill that shadow
-			-- muddies the dark letters. Polestar's button face is the same game
-			-- font with the shadow off.
+			-- GameFontHighlight draws a drop shadow. On the accent fill that shadow
+			-- muddies the dark letters, so the face is the same font with it off.
 			local path, size = fs:GetFont()
 			fs:SetFont(path or "Fonts\\FRIZQT__.TTF", size or 12, "")
 			fs:SetShadowOffset(0, 0)
@@ -191,7 +198,7 @@ function UI.Button(parent, text, width, onClick, primary)
 		if not b:IsEnabled() then fs:SetTextColor(0.5, 0.5, 0.5) end
 		local hl = Theme.Solid(b, theme.hover, "HIGHLIGHT")
 		hl:SetAllPoints()
-		-- A press nudges the label down a pixel, as Polestar's buttons do.
+		-- A press nudges the label down a pixel.
 		b:SetScript("OnMouseDown", function(self) if self:IsEnabled() then fs:AdjustPointsOffset(0, -1) end end)
 		b:SetScript("OnMouseUp", function(self) if self:IsEnabled() then fs:AdjustPointsOffset(0, 1) end end)
 		if onClick then b:SetScript("OnClick", onClick) end
@@ -261,7 +268,7 @@ function UI.IconButton(parent, icon, size, tooltip, onClick)
 	tex:SetPoint("CENTER")
 	local line = theme and LINE_ICONS[icon]
 	if line then
-		-- No button plate: the stroke sits on the window, the way Polestar's toolbar does.
+		-- No button plate: the stroke sits on the window.
 		bg:SetColorTexture(0, 0, 0, 0)
 		tex:SetTexture(UI.LineIcon(line))
 		tex:SetVertexColor(theme.text[1], theme.text[2], theme.text[3], 1)
@@ -436,7 +443,7 @@ local function EnsureList()
 			end
 			hl:SetAllPoints()
 			if theme then
-				-- A line check at the right edge, as Polestar's menus mark the choice.
+				-- A line check at the right edge of the chosen row.
 				row.Check = row:CreateTexture(nil, "ARTWORK")
 				row.Check:SetTexture(UI.LineIcon("check"))
 				row.Check:SetVertexColor(theme.text[1], theme.text[2], theme.text[3], 1)
@@ -474,8 +481,7 @@ local function EnsureList()
 		local selected = list.owner and list.owner.value == ed.value
 		if row.Check then row.Check:SetShown(selected) end
 		row.Text:SetText(ed.label)
-		-- Gold stays on the selection bar. The label stays white, so a chosen row
-		-- reads the same way Polestar's menus do.
+		-- The accent stays on the selection bar. The label stays white.
 		if selected and not theme then
 			row.Text:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
 		else
@@ -685,9 +691,8 @@ function UI.ProgressBar(parent)
 	local barParent = holder
 	local text
 	if theme then
-		-- A solid track with the fill the same height, and the percent beside it,
-		-- the way Polestar draws a level bar. A hairline with the number on top
-		-- looks empty until the fill is almost full.
+		-- A solid track with the fill the same height, and the percent beside it.
+		-- A hairline with the number on top looks empty until the fill is almost full.
 		text = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 		text:SetPoint("RIGHT", 0, 0)
 		local track = CreateFrame("Frame", nil, holder)

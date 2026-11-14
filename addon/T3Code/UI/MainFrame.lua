@@ -14,8 +14,8 @@ local LIST_W = 300
 local LIST_MIN = 180
 local LIST_KEEP = 420 -- the conversation keeps at least this much of the window
 local COMPOSER_H = 92
-local BAND_H = 22 -- one short row, the way Polestar's window bar is
--- Polestar leaves about 16px under its footer. The classic frame keeps the
+local BAND_H = 22 -- one short row for the title
+-- The modern footer sits 16px up. The classic frame keeps the
 -- buttons in its own bottom border (4px). The pages end above the row.
 local BAR_Y_MODERN = 16
 local BAR_CLEAR = 52
@@ -133,21 +133,33 @@ function M:Create()
 	f:Hide()
 	f:SetTitle("T3 Code")
 	f:SetPortraitToAsset(ns.media .. "portrait")
-	-- The modern design hides the game's ornate frame and paints its own: Dusk
-	-- at Polestar's window opacity, a hairline border and a title band, with
-	-- content sitting on that same ground.
+	-- The modern design hides the game's ornate frame and paints its own: one
+	-- flat navy, a hairline border, and the title on that same ground. The
+	-- template's top streaks are a black gradient; they stay hidden.
 	local theme = Theme.Get()
 	if theme then
+		local function HideArt(frame)
+			if not frame or not frame.GetRegions then return end
+			for _, region in ipairs({ frame:GetRegions() }) do
+				if region.Hide then region:Hide() end
+			end
+		end
 		-- By name: a piece the template doesn't have must not stop the loop.
-		for _, key in ipairs({ "NineSlice", "Bg", "PortraitContainer", "Portrait", "TitleContainer", "CloseButton" }) do
+		for _, key in ipairs({ "NineSlice", "Bg", "PortraitContainer", "Portrait", "TitleContainer", "CloseButton", "TopTileStreaks", "TitleBg" }) do
 			local piece = f[key]
 			if piece then piece:Hide() end
 		end
-		if f.Inset and f.Inset.NineSlice then f.Inset.NineSlice:Hide() end
-		f.ModernBg = Theme.Solid(f, theme.windowBg)
+		HideArt(f)
+		if f.Inset then
+			if f.Inset.NineSlice then f.Inset.NineSlice:Hide() end
+			HideArt(f.Inset)
+		end
+		-- Opaque, so the title isn't a see-through black strip over the world.
+		local navy = { theme.windowBg[1], theme.windowBg[2], theme.windowBg[3], 1 }
+		f.ModernBg = Theme.Solid(f, navy)
 		f.ModernBg:SetAllPoints()
 		Theme.Edges(f, theme.hairline)
-		f.ModernBand = Theme.Solid(f, theme.windowBg)
+		f.ModernBand = Theme.Solid(f, navy)
 		f.ModernBand:SetHeight(BAND_H)
 		f.ModernBand:SetPoint("TOPLEFT")
 		f.ModernBand:SetPoint("TOPRIGHT")
@@ -156,9 +168,6 @@ function M:Create()
 		f.ModernBandRule:SetPoint("TOPLEFT", 0, -BAND_H)
 		f.ModernBandRule:SetPoint("TOPRIGHT", 0, -BAND_H)
 		if f.Inset then
-			-- One ground only. A second fill here would stack the opacity and
-			-- make the chat solid. Hide the template's own plate so the window
-			-- ground shows through.
 			if f.Inset.Bg then f.Inset.Bg:Hide() end
 			-- The template's inset runs down into the button row. Lift its bottom
 			-- edge so the list and the message box stop above Refresh and Send.
@@ -189,7 +198,7 @@ function M:Create()
 		f.ModernTitle = f:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
 		f.ModernTitle:SetPoint("LEFT", f, "TOPLEFT", 12, -(BAND_H / 2))
 		f.ModernTitle:SetText("T3 Code")
-		-- White, like Polestar's wordmark. Gold stays on the rim and on what's selected.
+		-- Near-white. The accent stays on what's selected.
 		Theme.SetText(f.ModernTitle, theme.text)
 		-- A quiet × in the band's corner, no button chrome.
 		local close = CreateFrame("Button", nil, f)
@@ -237,8 +246,7 @@ function M:Create()
 	f.Status:SetPoint("TOP", f.Subtitle, "BOTTOM", 0, -2)
 	f.Status:SetWidth(WIDTH - 220)
 	if theme then
-		-- Same row as the title, the way Polestar keeps the guide name in the bar
-		-- instead of stacking more lines under it.
+		-- Same row as the title, so the thread name doesn't take a second line.
 		f.Subtitle:SetFontObject("GameFontHighlightSmall")
 		f.Subtitle:ClearAllPoints()
 		f.Subtitle:SetPoint("LEFT", f.ModernTitle, "RIGHT", 12, 0)
@@ -1033,6 +1041,7 @@ end
 function M:ApplyTheme()
 	local shown = self.frame and self.frame:IsShown() or false
 	local page = self.page or "threads"
+	local section = ns.Settings.section
 	self:SaveDraft()
 	ns.Suggest:Teardown()
 	if self.frame then self.frame:Hide() end
@@ -1049,6 +1058,12 @@ function M:ApplyTheme()
 	self:Create()
 	self:LoadDraft()
 	self:ShowPage(page)
+	-- Changing the accent rebuilds the window. Stay on the settings section
+	-- that was open, instead of landing back on Notices.
+	if section and ns.db.settings.theme == "modern" and ns.Settings.section then
+		ns.Settings.section = section
+		ns.Settings:Layout()
+	end
 	self.frame:SetShown(shown)
 end
 

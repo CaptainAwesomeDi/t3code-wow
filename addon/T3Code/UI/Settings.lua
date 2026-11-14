@@ -1,5 +1,5 @@
 -- Settings tab (also reachable from the game's Options > AddOns list).
--- The modern look follows Polestar's options window: a section list on the left,
+-- The modern look is a section list on the left,
 -- and on the right a title, a one-line explanation, and each setting as a name,
 -- a description, and a control at the right edge.
 
@@ -9,6 +9,19 @@ local Theme = ns.Theme
 
 local S = {}
 ns.Settings = S
+
+local function AccentChoices()
+	local options = {}
+	for _, a in ipairs(Theme.ACCENTS) do
+		table.insert(options, { value = a.value, label = a.label })
+	end
+	return options
+end
+
+local function ChooseAccent(value)
+	ns.db.settings.accent = value
+	if ns.db.settings.theme == "modern" then ns.Main:ApplyTheme() end
+end
 
 local CHECKS = {
 	{ section = "tracker", key = "tracker", label = "Show T3 Code in the tracker area", title = "Show in the tracker area", desc = "Lists what's running, what needs you, and what just finished.", after = function() ns.Tracker:Refresh() end },
@@ -78,6 +91,11 @@ function S:CreateClassic(page)
 		y = y - 28
 	end
 
+	local testNotice = UI.Button(page, "Test notice", 120, function() ns.Toasts:Preview() end)
+	testNotice:SetPoint("TOPLEFT", 22, y - 6)
+	UI.Tooltip(testNotice, "Test notice", "Shows a sample of the popup.")
+	y = y - 40
+
 	local voiceLabel = UI.Text(page, "GameFontHighlight")
 	voiceLabel:SetPoint("TOPLEFT", 22, y - 12)
 	voiceLabel:SetText("Voice for reading aloud")
@@ -107,9 +125,19 @@ function S:CreateClassic(page)
 	design:SetPoint("LEFT", designLabel, "RIGHT", 16, 0)
 	design:SetOptions({
 		{ value = "classic", label = "Classic (the game's own look)" },
-		{ value = "modern", label = "Modern (flat, dark, gold accent)" },
+		{ value = "modern", label = "Modern (flat, dark)" },
 	}, ns.db.settings.theme or "classic")
 	self.design = design
+	y = y - 40
+
+	local accentLabel = UI.Text(page, "GameFontHighlight")
+	accentLabel:SetPoint("TOPLEFT", 22, y - 12)
+	accentLabel:SetText("Accent")
+	local accent = UI.Dropdown(page, 240, ChooseAccent)
+	accent:SetPoint("LEFT", accentLabel, "RIGHT", 16, 0)
+	accent.tipBody = "Colors Start, the selected thread, and headings in the modern window."
+	accent:SetOptions(AccentChoices(), ns.db.settings.accent or "verdigris")
+	self.accent = accent
 	y = y - 40
 
 	local sizeLabel = UI.Text(page, "GameFontHighlight")
@@ -152,7 +180,7 @@ function S:CreateClassic(page)
 	local report = UI.Button(page, "Report a problem", 150, function() ns.Main:ShowPage("threads") ns.Main:Report() end)
 	report:SetPoint("LEFT", selftest, "RIGHT", 10, 0)
 	UI.Tooltip(report, "Report a problem", "Puts diagnostics in the message box and attaches a screenshot, for the thread you have open (or a new one).")
-	self.controls = { dd, size, design, test, reload, resetTracker, selftest, report }
+	self.controls = { dd, design, accent, size, test, testNotice, reload, resetTracker, selftest, report }
 end
 
 -- One setting row: a name, the line under it, a hairline, and the control on the right.
@@ -321,6 +349,15 @@ function S:CreateModern(page)
 		table.insert(self.rows, b)
 	end
 
+	local preview = CreateFrame("Frame", nil, content)
+	local testNotice = UI.Button(preview, "Test notice", 110, function() ns.Toasts:Preview() end)
+	testNotice:SetPoint("RIGHT", -8, 0)
+	Describe(preview, "See a notice", "Shows a sample of the popup, in this design.", testNotice, theme)
+	preview.section = "notices"
+	preview.hay = "see a notice test popup"
+	table.insert(self.rows, preview)
+	table.insert(self.controls, testNotice)
+
 	local function ChoiceRow(section, title, desc, hay, width, onChange)
 		local row = CreateFrame("Frame", nil, content)
 		local dd = UI.Dropdown(row, width, onChange)
@@ -362,8 +399,11 @@ function S:CreateModern(page)
 	end)
 	self.design:SetOptions({
 		{ value = "classic", label = "Classic (the game's own look)" },
-		{ value = "modern", label = "Modern (flat, dark, gold accent)" },
+		{ value = "modern", label = "Modern (flat, dark)" },
 	}, ns.db.settings.theme or "classic")
+
+	self.accent = ChoiceRow("window", "Accent", "Colors Start, the selected thread, and headings.", "accent verdigris ice copper gold color", 220, ChooseAccent)
+	self.accent:SetOptions(AccentChoices(), ns.db.settings.accent or "verdigris")
 
 	self.size = ChoiceRow("window", "Window size", "Automatic grows the window while a controller is in use.", "window size automatic normal large", 220, function(value)
 		ns.db.settings.windowScale = value
@@ -404,7 +444,7 @@ function S:CreateModern(page)
 	local report = UI.Button(body, "Report a problem", 150, function() ns.Main:ShowPage("threads") ns.Main:Report() end)
 	report:SetPoint("LEFT", selftest, "RIGHT", 6, 0)
 	UI.Tooltip(report, "Report a problem", "Puts diagnostics in the message box and attaches a screenshot, for the thread you have open (or a new one).")
-	for _, w in ipairs({ self.voice, self.size, self.design, test, reload, resetTracker, selftest, report }) do
+	for _, w in ipairs({ self.voice, self.design, self.accent, self.size, test, reload, resetTracker, selftest, report }) do
 		table.insert(self.controls, w)
 	end
 
@@ -459,7 +499,7 @@ end
 -- Drop the page's controls: the window is being rebuilt under another design.
 function S:Teardown()
 	self.page, self.checks, self.controls = nil, nil, nil
-	self.voice, self.size, self.design, self.info = nil, nil, nil, nil
+	self.voice, self.size, self.design, self.accent, self.info = nil, nil, nil, nil, nil
 	self.rows, self.nav, self.search, self.heading, self.subhead = nil, nil, nil, nil, nil
 	self.infoRow, self.content, self.empty, self.section = nil, nil, nil, nil
 end
@@ -485,6 +525,10 @@ function S:Refresh()
 	self.size:Update()
 	self.design.value = ns.db.settings.theme or "classic"
 	self.design:Update()
+	if self.accent then
+		self.accent.value = ns.db.settings.accent or "verdigris"
+		self.accent:Update()
+	end
 	local T = ns.Transport
 	local b = ns.Store.data.bridge or {}
 	local lines = {
