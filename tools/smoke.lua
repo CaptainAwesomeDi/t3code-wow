@@ -277,6 +277,57 @@ do
 	end
 end
 
+-- Side chats: fork the open thread, land on the child, come Back to the parent.
+do
+	local parent = firstThread.id
+	local function step(extra)
+		data.gen = (ns.db.gen or 0) + (extra or 1)
+		return data.gen
+	end
+	data.view = { id = parent, msgs = { { r = "u", t = "First message", at = 1, n = 1 } } }
+	step()
+	ns.Transport:Apply(data)
+	check(not hdr.SideChat:IsShown(), "no side-chat button before the bridge says the server has them")
+	data.bridge.sc = true
+	step()
+	ns.Transport:Apply(data)
+	check(hdr.SideChat:IsShown(), "side-chat button shown once the server has them")
+	ns.Main:StartSideChat()
+	check(ns.Main.mode == "new" and ns.Main.newSide == parent, "side-chat mode keeps the parent thread")
+	check(not hdr.Model:IsShown() and not hdr.Effort:IsShown() and not hdr.Project:IsShown(), "nothing to pick for a side chat")
+	check(hdr.Text:GetText():find("Side chat from", 1, true) ~= nil, "the header names the parent thread")
+	ns.Main.composer._text = "What broke?"
+	ns.Main:Send()
+	check(ns.Transport:Payload():find("\031side\031" .. parent .. "\031What broke?", 1, true) ~= nil, "side command carries the parent and the text")
+	check(not ns.Transport:Payload():find("\031new\031", 1, true), "a side chat sends no new-thread command")
+	ns.Transport:Apply({ gen = step(), results = { { id = ns.Main.pendingNew, ok = true, open = "child1" } }, threads = data.threads, projects = data.projects, bridge = data.bridge, usage = data.usage, ack = { ui = ns.ui, seq = ns.Transport.stripSeq } })
+	check(ns.viewId == "child1" and ns.Main.mode == "thread" and ns.Main.newSide == nil, "the side chat opened")
+
+	-- The child arrives in the list under its parent, and Back returns there.
+	local ps = ns.Store:Thread(parent).s or "open"
+	table.insert(data.threads, { id = "child1", title = "What broke?", p = firstThread.p, s = ps, pt = parent, st = 0 })
+	data.view = { id = "child1", pt = parent, msgs = { { r = "u", t = "What broke?", at = 1, n = 1 } } }
+	step()
+	ns.Transport:Apply(data)
+	local childRow, parentAt, childAt
+	for i, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
+		local id = r.ed.thread and r.ed.thread.id
+		if id == parent then parentAt = i end
+		if id == "child1" then childRow, childAt = r.frame, i end
+	end
+	check(childRow and childAt == parentAt + 1, "the side chat nests directly under its parent")
+	check(childRow.Sub:GetText():find("from ", 1, true) ~= nil, "the row says where it came from")
+	ns.Main:Back()
+	check(ns.viewId == parent, "Back out of a side chat returns to its parent")
+	for i, t in ipairs(data.threads) do
+		if t.id == "child1" then table.remove(data.threads, i) break end
+	end
+	data.bridge.sc = nil
+	data.view = nil
+	step()
+	ns.Transport:Apply(data)
+end
+
 -- Question / approval rendering
 data.gen = data.gen + 10
 data.view = data.view or { id = ns.viewId }

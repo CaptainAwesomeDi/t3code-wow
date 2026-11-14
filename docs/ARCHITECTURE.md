@@ -94,6 +94,7 @@ C  id  verb  args…                      (one per queued command)
 - Verbs:
   - `send`, `new`, `stop`
   - `model` (`threadId instanceId model [effort]`). `new` takes the same `instanceId model [effort]` after its text; without a model T3 Code's own default applies, and an empty `instanceId model` with an `effort` sets only the reasoning level on that default. `effort` is a level id from the model's list (`low`, `high`, …); without it the thread keeps the options last used with that model
+  - `side` (`parentThreadId text`): fork the thread into a side chat with `text` as its first message. The parent needs a message already, and the bridge refuses when the server doesn't advertise side chats
   - `settle`, `unsettle`, `archive`, `read`
   - `approve`, `answer`
   - `speak`, `say`, `hush`, `dictate`
@@ -192,12 +193,21 @@ When few slots remain, intervals stretch 2–4×. When they run out, the addon o
 - **Live data:** `POST /api/auth/websocket-ticket/rpc` gets a ticket, then
   `/ws?orchestrationProtocol=2` opens Effect RPC JSON frames.
 - **Subscriptions:** `orchestration.subscribeShell` (thread list, live) and
-  `subscribeServerConfig` (providers and usage limits).
+  `subscribeServerConfig` (providers and usage limits). Side chats and idle subagents
+  never arrive through the shell: the server hides them. The bridge reads a thread's
+  family — itself, its forks, its subagents — with `orchestration.getThreadFamily`
+  after a fork, when the player opens a thread, and when a family member changes,
+  paced to one fetch per thread every few seconds.
 - **Thread detail:** `GET /api/orchestration/threads/:id/bounded`, fetched for the
   viewed thread and for active threads so the tracker can say what they're doing.
 - **Writes:** `orchestration.dispatchCommand` with `message.dispatch`, `run.interrupt`,
   `runtime-request.respond`, `thread.settle`, `thread.unsettle` and `thread.visit`;
-  plus `orchestration.launchThread`.
+  plus `orchestration.launchThread`. Side chats are a `thread.fork` command with
+  `sideChat: true` and a client-minted `targetThreadId`, followed by the first message
+  as a normal `message.dispatch`; the server advertises them in
+  `config.environment.capabilities.sideChats` (with `shellThreadFamilies` for the
+  family reads), and an older server ignores the flag — it would create a plain,
+  visible fork — so the bridge only offers the button when the capability is there.
 
 ## Controller
 

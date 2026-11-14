@@ -51,7 +51,20 @@ export class Fleet extends EventEmitter {
   }
 
   wrapThread(env, t) {
-    return { ...t, id: this.key(env, t.id), projectId: this.key(env, t.projectId), _env: env };
+    return {
+      ...t,
+      id: this.key(env, t.id),
+      projectId: this.key(env, t.projectId),
+      // A child's parent and root are threads too, and get looked up by key.
+      lineage: t.lineage
+        ? {
+            ...t.lineage,
+            ...(t.lineage.parentThreadId ? { parentThreadId: this.key(env, t.lineage.parentThreadId) } : {}),
+            ...(t.lineage.rootThreadId ? { rootThreadId: this.key(env, t.lineage.rootThreadId) } : {}),
+          }
+        : t.lineage,
+      _env: env,
+    };
   }
 
   wrapProject(env, p) {
@@ -165,6 +178,46 @@ export class Fleet extends EventEmitter {
     const res = await env.client.launchThread(id, text, attachments, opts);
     if (res?.threadId) res.threadId = this.key(env, res.threadId);
     return res;
+  }
+
+  forkSideChat(parentKey, text, attachments) {
+    const { env, id } = this.split(parentKey);
+    return env.client.forkSideChat(id, text, attachments).then((res) => {
+      if (res?.threadId) res.threadId = this.key(env, res.threadId);
+      return res;
+    });
+  }
+
+  sideChatsSupported(key) {
+    const { env } = this.split(key);
+    return env.client.sideChatsSupported();
+  }
+
+  // Pull a thread's family — itself, its forks and subagents, including idle side
+  // chats the shell subscription never delivers — through the same change events the
+  // subscription uses, so status moves and announcements work unchanged. A family
+  // member that has gone (archived or deleted) is removed again. `key` may be the
+  // parent or any of its children: the server answers with the whole family either way.
+  async refreshFamily(key) {
+    const { env, id } = this.split(key);
+    const family = await env.client.getThreadFamily(id);
+    const seen = new Set();
+    // The stored envelope carries the env object; compare the thread without it.
+    const sig = (t) => JSON.stringify({ ...t, _env: undefined });
+    for (const raw of family) {
+      const w = this.wrapThread(env, raw);
+      seen.add(w.id);
+      const prev = this.threads.get(w.id);
+      if (prev && sig(prev) === sig(w)) continue;
+      this.threads.set(w.id, w);
+      this.emit('change', { kind: 'thread', id: w.id, thread: w, prev, env });
+    }
+    for (const [k, t] of this.threads) {
+      if (t._env === env && t.lineage?.parentThreadId && !seen.has(k) && seen.has(t.lineage.parentThreadId)) {
+        this.threads.delete(k);
+        this.emit('change', { kind: 'removed', id: k, env });
+      }
+    }
   }
 
   interrupt(key) {

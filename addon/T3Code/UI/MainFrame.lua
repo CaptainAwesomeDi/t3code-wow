@@ -197,6 +197,12 @@ function M:CreateThreadsPage(page)
 		return "Hide this thread until a time you pick. The times are the snooze presets from T3 Code's settings."
 	end)
 	UI.Tooltip(header.Archive, "Archive", "Hide this thread from the list (it stays in T3 Code's archive).")
+	-- Side chat: fork the open thread into a private aside, as T3 Code's own client
+	-- does. The thread keeps working; the fork asks something alongside it.
+	header.SideChat = UI.Button(header, "Side Chat", 86, function() M:StartSideChat() end)
+	header.SideChat:SetPoint("RIGHT", header.Action, "LEFT", -4, 0)
+	header.SideChat:Hide()
+	UI.Tooltip(header.SideChat, "Side Chat", "Start a side conversation forked from this thread. The main thread keeps working.")
 	header.Project = UI.Dropdown(header, 176, function(value)
 		M.newProject = value
 		M.newModel, M.newEffort = nil, nil
@@ -357,7 +363,7 @@ end
 
 function M:SaveDraft()
 	if not self.composer then return end
-	local key = self.mode == "new" and "__new" or ns.viewId
+	local key = self.mode == "new" and (self.newSide and "__side" or "__new") or ns.viewId
 	if key then
 		local text = self.composer:GetInputText()
 		ns.db.drafts[key] = (text and text ~= "") and text or nil
@@ -365,7 +371,7 @@ function M:SaveDraft()
 end
 
 function M:LoadDraft()
-	local key = self.mode == "new" and "__new" or ns.viewId
+	local key = self.mode == "new" and (self.newSide and "__side" or "__new") or ns.viewId
 	self.composer:SetText(key and ns.db.drafts[key] or "")
 	self:UpdateCounter()
 end
@@ -378,6 +384,7 @@ function M:SelectThread(id, opts)
 	end
 	self:SaveDraft()
 	self.mode = "thread"
+	self.newSide = nil
 	self.previous = ns.viewId
 	ns.viewId = id
 	local t = ns.Store:Thread(id)
@@ -393,12 +400,19 @@ end
 function M:Back()
 	if self.mode == "new" then
 		self.mode = "thread"
+		self.newSide = nil
 		self:LoadDraft()
 		self:Refresh()
 		return
 	end
 	if not self.frame.Pages.threads.Left:IsShown() then
 		self:ToggleSidebar(true)
+		return
+	end
+	-- Out of a side chat, Back lands on the thread it was forked from.
+	local v = ns.Store.data.view
+	if v and v.pt and v.id == ns.viewId and ns.Store:Thread(v.pt) then
+		self:SelectThread(v.pt)
 		return
 	end
 	self:CloseThread()
@@ -425,6 +439,7 @@ function M:StartNewThread(projectId)
 	self:Create()
 	self:SaveDraft()
 	self.mode = "new"
+	self.newSide = nil
 	self.newModel, self.newEffort = nil, nil
 	local filter = ns.db.settings.project
 	self.newProject = projectId or (filter ~= "all" and filter) or ns.db.settings.lastProject
@@ -432,6 +447,22 @@ function M:StartNewThread(projectId)
 		local first = ns.Store.data.projects[1]
 		self.newProject = first and first.id
 	end
+	self:LoadDraft()
+	if self.page ~= "threads" then self:ShowPage("threads") end
+	self:Open()
+	self:Refresh()
+	self.composer:SetFocus()
+end
+
+-- A side chat: the composer turns into the first message of a fork of the open
+-- thread. No project or model to pick — the fork carries the thread's own.
+function M:StartSideChat()
+	if not ns.viewId then return end
+	self:Create()
+	self:SaveDraft()
+	self.mode = "new"
+	self.newSide = ns.viewId
+	self.newModel, self.newEffort = nil, nil
 	self:LoadDraft()
 	if self.page ~= "threads" then self:ShowPage("threads") end
 	self:Open()
@@ -557,24 +588,33 @@ function M:Send(textOverride)
 	text = strtrim(text)
 	if text == "" then return end
 	if self.mode == "new" then
-		if not self.newProject then
-			ns.Print("Pick a project for the new thread first.")
-			return
-		end
-		local instanceId, slug = ns.Store.SplitModelKey(self:ChosenNewModel())
-		local effort = self:ChosenNewEffort()
-		local id
-		if effort then
-			-- An empty model means T3 Code's default, at this level.
-			id = ns.Transport:Send("new", self.newProject, text, instanceId or "", slug or "", effort)
+		if self.newSide then
+			-- A side chat: fork the parent thread with this text as the first message.
+			local id = ns.Transport:Send("side", self.newSide, text)
+			if not id then return end -- too long; the composer keeps it
+			self.pendingNew = id
+			self.pendingNewText = text
+			ns.db.drafts.__side = nil
 		else
-			id = ns.Transport:Send("new", self.newProject, text, instanceId, slug)
+			if not self.newProject then
+				ns.Print("Pick a project for the new thread first.")
+				return
+			end
+			local instanceId, slug = ns.Store.SplitModelKey(self:ChosenNewModel())
+			local effort = self:ChosenNewEffort()
+			local id
+			if effort then
+				-- An empty model means T3 Code's default, at this level.
+				id = ns.Transport:Send("new", self.newProject, text, instanceId or "", slug or "", effort)
+			else
+				id = ns.Transport:Send("new", self.newProject, text, instanceId, slug)
+			end
+			if not id then return end -- too long; the composer keeps it
+			ns.db.settings.lastProject = self.newProject
+			self.pendingNew = id
+			self.pendingNewText = text
+			ns.db.drafts.__new = nil
 		end
-		if not id then return end -- too long; the composer keeps it
-		ns.db.settings.lastProject = self.newProject
-		self.pendingNew = id
-		self.pendingNewText = text
-		ns.db.drafts.__new = nil
 	elseif ns.viewId and not textOverride and ns.Transcript:CustomAnswer(text) then
 		ns.db.drafts[ns.viewId] = nil
 	elseif ns.viewId then
@@ -603,12 +643,13 @@ end
 -- Screenshots and reports
 
 function M:ShotKey()
-	if self.mode == "new" then return "new" end
+	-- A side chat sends shots held for its parent thread, the one still open.
+	if self.mode == "new" then return self.newSide or "new" end
 	return ns.viewId
 end
 
 function M:ShotCount()
-	if self.mode == "new" then return ns.Store.data.newShots or 0 end
+	if self.mode == "new" and not self.newSide then return ns.Store.data.newShots or 0 end
 	local v = ns.Store:View()
 	return v and v.shots or 0
 end
@@ -774,35 +815,53 @@ function M:Refresh()
 	local panel = self.snoozePanel
 	if panel and panel:IsShown() and (panel.threadId ~= ns.viewId or self.mode == "new" or not t or t.s == "snoozed") then panel:Hide() end
 	if self.mode == "new" then
-		f.Subtitle:SetText("New Thread")
-		header.Text:SetText(ns.Color("gold", "New thread in"))
 		header.Action:Hide()
 		header.Archive:Hide()
 		header.Snooze:Hide()
-		header.Project:Show()
-		self:SetupProjectDropdown()
-		local withModel = self:SetupModelDropdown()
-		local withEffort = withModel and self:SetupEffortDropdown()
-		if not withEffort then header.Effort:Hide() end
-		header.Model.tipBody = "The model the new thread starts on. It's remembered for this project."
-		header.Effort.tipBody = "How hard the model reasons on the new thread. It's remembered for this project."
-		header.Effort:ClearAllPoints()
-		header.Effort:SetPoint("RIGHT", -6, 0)
-		header.Model:ClearAllPoints()
-		header.Model:SetPoint("RIGHT", withEffort and header.Effort or header, withEffort and "LEFT" or "RIGHT", withEffort and -4 or -6, 0)
-		header.Project:ClearAllPoints()
-		if withModel then
-			header.Project:SetPoint("RIGHT", header.Model, "LEFT", -6, 0)
+		header.SideChat:Hide()
+		if self.newSide then
+			-- No project or model to pick: the fork carries the parent thread's own.
+			local parent = ns.Store:Thread(self.newSide)
+			f.Subtitle:SetText("Side Chat")
+			header.Text:SetText(ns.Color("gold", "Side chat from") .. "  " .. (parent and parent.title or ""))
+			header.Project:Hide()
+			header.Model:Hide()
+			header.Effort:Hide()
+			header.Text:ClearAllPoints()
+			header.Text:SetPoint("LEFT", 12, 0)
+			header.Text:SetPoint("RIGHT", -12, 0)
+			header.Text:SetJustifyH("RIGHT")
+			self:SetPlaceholder("Ask alongside this thread  (Shift+Enter for a new line)")
+			right.Hint:SetText(self:ShotHint() or "")
+			f.Bar.Send:SetText("Start")
 		else
-			header.Project:SetPoint("RIGHT", -6, 0)
+			f.Subtitle:SetText("New Thread")
+			header.Text:SetText(ns.Color("gold", "New thread in"))
+			header.Project:Show()
+			self:SetupProjectDropdown()
+			local withModel = self:SetupModelDropdown()
+			local withEffort = withModel and self:SetupEffortDropdown()
+			if not withEffort then header.Effort:Hide() end
+			header.Model.tipBody = "The model the new thread starts on. It's remembered for this project."
+			header.Effort.tipBody = "How hard the model reasons on the new thread. It's remembered for this project."
+			header.Effort:ClearAllPoints()
+			header.Effort:SetPoint("RIGHT", -6, 0)
+			header.Model:ClearAllPoints()
+			header.Model:SetPoint("RIGHT", withEffort and header.Effort or header, withEffort and "LEFT" or "RIGHT", withEffort and -4 or -6, 0)
+			header.Project:ClearAllPoints()
+			if withModel then
+				header.Project:SetPoint("RIGHT", header.Model, "LEFT", -6, 0)
+			else
+				header.Project:SetPoint("RIGHT", -6, 0)
+			end
+			header.Text:ClearAllPoints()
+			header.Text:SetPoint("LEFT", 12, 0)
+			header.Text:SetPoint("RIGHT", header.Project, "LEFT", -8, 0)
+			header.Text:SetJustifyH("RIGHT")
+			self:SetPlaceholder("Describe what the agent should do  (Shift+Enter for a new line)")
+			right.Hint:SetText(self:ShotHint() or "")
+			f.Bar.Send:SetText("Start")
 		end
-		header.Text:ClearAllPoints()
-		header.Text:SetPoint("LEFT", 12, 0)
-		header.Text:SetPoint("RIGHT", header.Project, "LEFT", -8, 0)
-		header.Text:SetJustifyH("RIGHT")
-		self:SetPlaceholder("Describe what the agent should do  (Shift+Enter for a new line)")
-		right.Hint:SetText(self:ShotHint() or "")
-		f.Bar.Send:SetText("Start")
 	else
 		header.Text:ClearAllPoints()
 		header.Text:SetPoint("LEFT", 12, 0)
@@ -821,17 +880,25 @@ function M:Refresh()
 			local snoozable = t.s ~= "settled" and (t.s == "snoozed" or #self:SnoozeOptions() > 0)
 			header.Snooze:SetShown(snoozable)
 			header.Snooze:SetText(t.s == "snoozed" and "Wake" or "Snooze")
+			-- Side chats need the server that hides them, and a first message on the
+			-- thread to fork from: T3 offers them no earlier than that.
+			local view = ns.Store:View()
+			local sideOK = ns.Store.data.bridge.sc and view and view.msgs and #view.msgs > 0
+			header.SideChat:SetShown(sideOK)
+			local tail = t.s == "settled" and header.Archive or (snoozable and header.Snooze or header.Action)
+			header.SideChat:ClearAllPoints()
+			header.SideChat:SetPoint("RIGHT", tail, "LEFT", -4, 0)
 			local withModel = self:SetupModelDropdown()
 			local withEffort = withModel and self:SetupEffortDropdown()
 			if not withEffort then header.Effort:Hide() end
 			header.Model.tipBody = "The model for this thread. A change applies from the next reply on."
 			header.Effort.tipBody = "How hard the model reasons on this thread. A change applies from the next reply on."
-			local anchor = t.s == "settled" and header.Archive or (snoozable and header.Snooze or header.Action)
+			local anchor = sideOK and header.SideChat or tail
 			header.Effort:ClearAllPoints()
 			header.Effort:SetPoint("RIGHT", anchor, "LEFT", -4, 0)
 			header.Model:ClearAllPoints()
 			header.Model:SetPoint("RIGHT", withEffort and header.Effort or anchor, "LEFT", -4, 0)
-			local pickers = (withModel and header.Model:GetWidth() + 4 or 0) + (withEffort and header.Effort:GetWidth() + 4 or 0)
+			local pickers = (sideOK and 90 or 0) + (withModel and header.Model:GetWidth() + 4 or 0) + (withEffort and header.Effort:GetWidth() + 4 or 0)
 			header.Text:SetPoint("RIGHT", ((t.s == "settled" or snoozable) and -200 or -110) - pickers, 0)
 			local busy = ns.db.settings.steerFollowUps and "Steer the agent" or "Queue a follow-up"
 			self:SetPlaceholder((t.s == "working" and busy or "Message the agent") .. "  (Shift+Enter for a new line)")
@@ -841,6 +908,7 @@ function M:Refresh()
 			header.Action:Hide()
 			header.Archive:Hide()
 			header.Snooze:Hide()
+			header.SideChat:Hide()
 			header.Model:Hide()
 			header.Effort:Hide()
 		end

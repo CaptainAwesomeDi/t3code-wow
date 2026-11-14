@@ -796,3 +796,83 @@ test('running subagent threads are listed, idle ones are not', async () => {
   assert.ok(ids.includes('busy-kid'), 'a running subagent thread is listed');
   assert.ok(!ids.includes('idle-kid'), 'an idle one is not');
 });
+
+test('side: a side chat forks from the open thread and opens in the game', async () => {
+  const { b, calls } = fakeBridge();
+  b.t3.sideChatsSupported = () => true;
+  b.t3.forkSideChat = async (...a) => (calls.push(['fork', ...a]), { threadId: 'kid1' });
+  await b.runCommand({ id: 9, verb: 'side', args: ['t1', 'quick one'] });
+  assert.deepEqual(calls.find((c) => c[0] === 'fork'), ['fork', 't1', 'quick one', []]);
+  assert.ok(b.results.some((r) => r.id === 9 && r.ok && r.open === 'kid1'), 'the result opens the child');
+});
+
+test('side: refused without the server capability, and family fetches are paced', async () => {
+  const { b, calls } = fakeBridge();
+  b.t3.refreshFamily = async (...a) => calls.push(['family', ...a]);
+  await b.runCommand({ id: 9, verb: 'side', args: ['t1', 'quick one'] });
+  assert.equal(calls.length, 0, 'no fork, no family fetch');
+  assert.equal(b.results.at(-1).ok, false);
+  assert.match(b.results.at(-1).msg, /side chats/i);
+  // With the capability, one fetch per thread even when asked twice.
+  b.t3.sideChatsSupported = () => true;
+  b.scheduleFamily('t1', 0);
+  b.scheduleFamily('t1', 0);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(calls, [['family', 't1']]);
+});
+
+test('side chats stay listed with their parent; subagents still only while busy', () => {
+  const { b } = fakeBridge();
+  const now = new Date().toISOString();
+  b.t3.threads.set('side1', { id: 'side1', title: 'Ask', projectId: 'p1', status: 'completed', lineage: { parentThreadId: 't1', sideChat: true }, updatedAt: now });
+  b.t3.threads.set('idle-kid', { id: 'idle-kid', title: 'K', projectId: 'p1', status: 'completed', lineage: { parentThreadId: 't1' }, updatedAt: now });
+  const snap = b.buildSnapshot();
+  const side = snap.threads.find((t) => t.id === 'side1');
+  assert.ok(side, 'an idle side chat stays listed');
+  assert.equal(side.pt, 't1', 'the row carries its parent');
+  assert.ok(!snap.threads.some((t) => t.id === 'idle-kid'), 'an idle subagent does not');
+  assert.equal(snap.bridge.sc, undefined, 'no capability advertised');
+  b.t3.local.client.sideChatsSupported = () => true;
+  assert.equal(b.buildSnapshot().bridge.sc, true, 'the capability reaches the addon');
+});
+
+test('a side chat announces and points Back at its parent', () => {
+  const { b } = fakeBridge();
+  const said = [];
+  b.announce = (t, status) => said.push(status);
+  const base = { title: 'S', projectId: 'p1', updatedAt: new Date().toISOString(), lineage: { parentThreadId: 't1', sideChat: true } };
+  const running = { ...base, id: 'side1', status: 'running', activityRunStatus: 'running' };
+  b.onT3Change({ kind: 'thread', prev: running, thread: { ...running, status: 'completed', activityRunStatus: null } });
+  assert.deepEqual(said, ['open'], 'a finished side chat is announced, unlike a subagent');
+
+  b.t3.threads.set('side1', running);
+  b.views.set('side1', { projection: { messages: [], turnItems: [], runtimeRequests: [], runs: [] }, fetchedAt: Date.now(), inflight: null, again: false });
+  b.client = { view: 'side1', flags: '' };
+  assert.equal(b.buildSnapshot().view.pt, 't1', 'the view carries the parent for Back');
+});
+
+test('a family fetch merges side chats in and drops the ones that went away', async () => {
+  const { Fleet } = await import('../src/fleet.js');
+  const fleet = new Fleet({ localTokens: async () => 'x', log: () => {} });
+  const events = [];
+  fleet.on('change', (ev) => events.push(ev));
+  const parent = { id: 't1', title: 'P', projectId: 'p1', updatedAt: '2026-01-01T00:00:00Z' };
+  const kid = { id: 'kid', title: 'K', projectId: 'p1', updatedAt: '2026-01-01T00:00:00Z', lineage: { parentThreadId: 't1', rootThreadId: 't1', sideChat: true } };
+  fleet.local.client.getThreadFamily = async () => [parent, kid];
+  await fleet.refreshFamily('t1');
+  assert.ok(fleet.threads.has('kid'));
+  assert.equal(fleet.threads.get('kid').lineage.parentThreadId, 't1');
+  assert.ok(events.some((e) => e.kind === 'thread' && e.id === 'kid'));
+  events.length = 0;
+  await fleet.refreshFamily('t1');
+  assert.equal(events.length, 0, 'an unchanged family is quiet');
+  fleet.local.client.getThreadFamily = async () => [parent];
+  await fleet.refreshFamily('t1');
+  assert.ok(!fleet.threads.has('kid'), 'an archived side chat leaves with its family');
+  assert.ok(events.some((e) => e.kind === 'removed' && e.id === 'kid'));
+
+  // A remote machine's family is keyed to that machine, lineage included.
+  const w = fleet.wrapThread({ code: 'e1' }, { id: 'kid', projectId: 'p1', lineage: { parentThreadId: 'p', rootThreadId: 'p', sideChat: true } });
+  assert.equal(w.id, 'e1~kid');
+  assert.equal(w.lineage.parentThreadId, 'e1~p');
+});

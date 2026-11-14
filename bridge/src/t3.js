@@ -413,7 +413,7 @@ export class T3Client extends EventEmitter {
     const busy = t && threadStatus(t) === 'working';
     let dispatchMode = { type: 'start_immediately' };
     if (mode === 'steer' && t?.activeRunId) dispatchMode = { type: 'steer_active', targetRunId: t.activeRunId };
-    else if (busy) dispatchMode = { type: 'queue_after_active' };
+    else if (mode !== 'start' && busy) dispatchMode = { type: 'queue_after_active' };
     return this.dispatch({
       type: 'message.dispatch',
       threadId,
@@ -460,6 +460,49 @@ export class T3Client extends EventEmitter {
       workspaceStrategy: { type: 'root' },
       initialMessage: { messageId: randomUUID(), text, attachments },
     }, { timeout: 60000 });
+  }
+
+  // Whether the server hides side-chat forks and can be asked for a thread's family.
+  // Both live in the config subscription: `shellThreadFamilies` at the top level,
+  // `sideChats` inside the environment descriptor. An older server that ignores the
+  // fork's sideChat flag would create a plain, visible fork, so callers gate on this.
+  sideChatsSupported() {
+    return Boolean(this.config?.environment?.capabilities?.sideChats && this.config?.shellThreadFamilies);
+  }
+
+  // A side chat: a hidden fork of a thread, asked alongside it. The fork's id is
+  // minted here (the server takes it in the command), the first message is a normal
+  // dispatch once the fork exists, and an unused fork is deleted again if that
+  // dispatch fails — as T3's own client does. `sourcePoint: latest_stable` needs the
+  // source thread to have run at least once.
+  async forkSideChat(sourceThreadId, text, attachments = []) {
+    const threadId = randomUUID();
+    const firstLine = text.split('\n')[0].trim();
+    const title = firstLine.length > 60 ? firstLine.slice(0, 57) + '...' : firstLine || 'Side chat';
+    await this.dispatch({
+      type: 'thread.fork',
+      sourceThreadId,
+      targetThreadId: threadId,
+      sourcePoint: { type: 'latest_stable' },
+      sideChat: true,
+      title,
+      createdBy: 'user',
+      creationSource: 'web',
+    });
+    try {
+      await this.sendMessage(threadId, text, 'start', attachments);
+    } catch (err) {
+      await this.dispatch({ type: 'thread.delete', threadId, onlyIfUnused: true }).catch(() => {});
+      throw err;
+    }
+    return { threadId };
+  }
+
+  // A thread's family: itself plus its forks and subagents, including the idle ones
+  // the shell subscription leaves out. Side chats only ever reach the bridge this way.
+  async getThreadFamily(threadId) {
+    const res = await this.request('orchestration.getThreadFamily', { threadId });
+    return res?.threads || [];
   }
 
   // Upload an image the way the T3 app does: ask for a signed upload URL, POST the

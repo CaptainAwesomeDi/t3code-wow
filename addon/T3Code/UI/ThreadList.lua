@@ -86,7 +86,12 @@ local function CreateRow(button)
 		if not t then return end
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:SetText(t.title, 1, 0.82, 0, 1, true)
-		GameTooltip:AddLine(ns.Store:ProjectName(t.p), 0.7, 0.7, 0.7)
+		if t.pt then
+			local parent = ns.Store:Thread(t.pt)
+			GameTooltip:AddLine("Side chat of " .. (parent and parent.title or "another thread"), 0.7, 0.7, 0.7)
+		else
+			GameTooltip:AddLine(ns.Store:ProjectName(t.p), 0.7, 0.7, 0.7)
+		end
 		GameTooltip:AddLine(t.l or ns.Store.StatusText(t.s), 1, 1, 1, true)
 		if t.br then GameTooltip:AddLine("Branch: " .. t.br, 0.6, 0.8, 1) end
 		if t.m then
@@ -108,6 +113,14 @@ local function InitRow(button, ed)
 	local t = ed.thread
 	button.thread = t
 	button.Selected:SetShown(t.id == ns.viewId and ns.Main.mode ~= "new")
+	-- A side chat indents under the thread it was forked from.
+	local indent = t.pt and 14 or 0
+	button.Dot:ClearAllPoints()
+	button.Dot:SetPoint("TOPLEFT", 6 + indent, -12)
+	button.Title:ClearAllPoints()
+	button.Title:SetPoint("TOPLEFT", 18 + indent, -7)
+	button.Sub:ClearAllPoints()
+	button.Sub:SetPoint("BOTTOMLEFT", 18 + indent, 8)
 	button.Title:SetText(t.title)
 	if t.s == "settled" or t.s == "snoozed" then
 		button.Title:SetTextColor(0.75, 0.75, 0.75)
@@ -119,6 +132,10 @@ local function InitRow(button, ed)
 	if color then button.Dot:SetVertexColor(color[1], color[2], color[3]) end
 	button.Status:SetText(ns.Color(ns.Store.StatusColor(t.s), ns.Store.StatusText(t.s)))
 	local sub = ns.Store:ProjectName(t.p)
+	if t.pt then
+		local parent = ns.Store:Thread(t.pt)
+		sub = "from " .. (parent and parent.title or "another thread")
+	end
 	if t.s == "working" or t.s == "input" or t.s == "waiting" then sub = t.l or sub end
 	button.Sub:SetText(sub)
 	if (t.s == "working" or t.s == "waiting") and t.st then

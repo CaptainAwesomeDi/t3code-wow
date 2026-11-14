@@ -109,6 +109,32 @@ function Store:ProjectName(id)
 	return p and p.name or ""
 end
 
+-- A side chat sits directly under the thread it was forked from, when both are shown
+-- in the same group; one whose parent is filtered out keeps its own place.
+local function NestChildren(list)
+	local kids = {}
+	for _, t in ipairs(list) do
+		if t.pt then
+			kids[t.pt] = kids[t.pt] or {}
+			table.insert(kids[t.pt], t)
+		end
+	end
+	local out, seen = {}, {}
+	for _, t in ipairs(list) do
+		if not seen[t.id] then
+			seen[t.id] = true
+			table.insert(out, t)
+			for _, k in ipairs(kids[t.id] or {}) do
+				if not seen[k.id] then
+					seen[k.id] = true
+					table.insert(out, k)
+				end
+			end
+		end
+	end
+	return out
+end
+
 -- Threads grouped for the sidebar, filtered by project.
 -- projectFilter: "all", a project id, or "m:<machine>" ("m:local" for this one).
 function Store:Groups(projectFilter, query)
@@ -128,6 +154,9 @@ function Store:Groups(projectFilter, query)
 			local g = GROUP_OF[t.s] or "open"
 			table.insert(groups[g], t)
 		end
+	end
+	for _, key in ipairs({ "working", "open", "snoozed", "settled" }) do
+		groups[key] = NestChildren(groups[key])
 	end
 	return groups
 end

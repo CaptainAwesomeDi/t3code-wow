@@ -252,6 +252,11 @@ export class Bridge {
     this.stopped = false;
     this.captureState = 'starting';
     this.prevStatus = new Map();
+    // Side chats never arrive through the shell subscription; these pace the family
+    // fetches that stand in for it. `sideParents` remembers which threads have them.
+    this.familyTimers = new Map(); // threadId -> pending timeout
+    this.familyAt = new Map(); // threadId -> last fetch time
+    this.sideParents = new Set();
   }
 
   loadState() {
@@ -431,7 +436,11 @@ export class Bridge {
     if (hello.slots) c.slotCount = hello.slots;
     if (c.view !== hello.view) {
       c.view = hello.view;
-      if (c.view) this.refreshView(c.view, true);
+      if (c.view) {
+        this.refreshView(c.view, true);
+        // Opening a thread is also how side chats come back after a bridge restart.
+        this.scheduleFamily(c.view, 1500);
+      }
       this.markDirty('view');
     }
     c.seq = frame.seq;
@@ -486,6 +495,8 @@ export class Bridge {
           const attachments = await this.takeShots(a0, a0);
           await this.t3.sendMessage(a0, a1, a2 || 'auto', attachments);
           msg = attachments.length ? `Sent with ${attachments.length} screenshot${attachments.length === 1 ? '' : 's'}` : 'Sent';
+          // A side chat's answer only shows up through a family fetch.
+          if (this.t3.threads.get(a0)?.lineage?.sideChat) this.scheduleFamily(a0, 1500);
           break;
         }
         case 'shot': {
@@ -512,6 +523,18 @@ export class Bridge {
           const res = await this.t3.launchThread(a0, a1, attachments, opts);
           msg = 'Thread started';
           if (res?.threadId) this.results.push({ id: cmd.id, ok: true, open: res.threadId });
+          break;
+        }
+        case 'side': {
+          // side <parent> <text>: a side chat forked from the parent thread, with
+          // the text as its first message. The parent needs a first message already.
+          if (!this.t3.sideChatsSupported(a0)) throw new Error('This T3 Code has no side chats yet. Update T3 Code and restart it.');
+          if (!this.t3.threads.get(a0)) throw new Error('That thread is gone.');
+          const attachments = await this.takeShots(a0, a0);
+          const res = await this.t3.forkSideChat(a0, a1, attachments);
+          msg = 'Side chat started';
+          if (res?.threadId) this.results.push({ id: cmd.id, ok: true, open: res.threadId });
+          this.scheduleFamily(a0, 1000);
           break;
         }
         case 'model':
@@ -680,6 +703,22 @@ export class Bridge {
     return this.views.get(threadId)?.projection;
   }
 
+  // Ask for a thread's family soon: side chats (and idle subagents) reach the bridge
+  // only through that fetch, never through the shell subscription. Paced to one fetch
+  // per thread every few seconds, so the change events a fetch causes don't loop.
+  scheduleFamily(threadId, delay = 2000) {
+    if (!threadId || !this.t3.sideChatsSupported(threadId)) return;
+    if (this.familyTimers.has(threadId)) return;
+    const wait = Math.max(delay, (this.familyAt.get(threadId) || 0) + 8000 - Date.now());
+    const tm = setTimeout(() => {
+      this.familyTimers.delete(threadId);
+      this.familyAt.set(threadId, Date.now());
+      this.t3.refreshFamily(threadId).catch((err) => this.log(`family ${String(threadId).slice(0, 8)}: ${err.message}`));
+    }, wait);
+    tm.unref?.();
+    this.familyTimers.set(threadId, tm);
+  }
+
   refreshView(threadId, force = false) {
     let v = this.views.get(threadId);
     if (!v) {
@@ -732,9 +771,15 @@ export class Bridge {
       this.prevStatus.set(t.id, status);
       if (t.id === this.client?.view) this.refreshView(t.id);
       else if (ACTIVE.has(status)) this.refreshView(t.id);
+      // Anything that moves in a family with side chats is worth another look; a
+      // family member only changes through the fetch itself, so this can't loop.
+      if (t.lineage?.sideChat) {
+        this.sideParents.add(t.lineage.parentThreadId);
+        this.scheduleFamily(t.id);
+      } else if (this.sideParents.has(t.id)) this.scheduleFamily(t.id);
       if (before !== status) {
         this.markDirty('important');
-        if (t.lineage?.parentThreadId) return; // no announcements for subagent threads
+        if (t.lineage?.parentThreadId && !t.lineage.sideChat) return; // no announcements for subagent threads
         // A snoozed thread stays quiet: the player asked not to hear about it yet.
         if (status === 'snoozed') return;
         if (BUSY.has(before) && !BUSY.has(status)) this.announce(t, status);
@@ -810,8 +855,9 @@ export class Bridge {
     const usedProjects = new Set();
     let threads = [...t3.threads.values()]
       .map((t) => ({ t, s: threadStatus(t) }))
-      // Subagent threads only while they're busy, like T3's own sidebar.
-      .filter(({ t, s }) => s !== 'archived' && (!t.lineage?.parentThreadId || ACTIVE.has(s)));
+      // Subagent threads only while they're busy, like T3's own sidebar. Side chats
+      // are the player's own conversations: they stay listed.
+      .filter(({ t, s }) => s !== 'archived' && (!t.lineage?.parentThreadId || t.lineage.sideChat || ACTIVE.has(s)));
     threads.sort((a, b) => ORDER[a.s] - ORDER[b.s] || Date.parse(b.t.updatedAt) - Date.parse(a.t.updatedAt));
     let settled = 0;
     threads = threads.filter(({ s }) => s !== 'settled' || ++settled <= 30).slice(0, 90);
@@ -843,6 +889,8 @@ export class Bridge {
         un: s !== 'settled' && s !== 'snoozed' && isUnread(t) ? true : undefined,
         // When a snoozed thread comes back.
         w: s === 'snoozed' ? sec(t.snoozedUntil) : undefined,
+        // A side chat's parent, so the list can show where it came from.
+        pt: t.lineage?.sideChat ? t.lineage.parentThreadId : undefined,
         br: t.branch ? escapeWow(t.branch) : undefined,
         m: t.modelSelection?.model,
         mi: t.modelSelection?.instanceId,
@@ -894,6 +942,8 @@ export class Bridge {
           more: msgs.length > out.length || undefined,
           pending: pendingRequest(p) || undefined,
           act: t && threadStatus(t) === 'working' ? escapeWow(activityLabel(p) || 'Working') : undefined,
+          // Where Back goes from a side chat: its parent.
+          pt: t?.lineage?.sideChat ? t.lineage.parentThreadId : undefined,
           err: t?.lastError ? escapeWow(String(t.lastError).slice(0, 300)) : undefined,
           plan: plan ? markdownToWow(plan, { maxChars: 6000 }) : undefined,
           sum: sum ? escapeWow(sum) : undefined,
@@ -921,6 +971,8 @@ export class Bridge {
         t3err: t3.error ? escapeWow(t3.error) : undefined,
         server: t3.config?.environment?.serverVersion,
         host: t3.config?.environment?.label,
+        // Whether any connected T3 Code hides side-chat forks; the addon offers them only then.
+        sc: t3.envs.some((e) => e.client.sideChatsSupported()) || undefined,
         tts: voice.tts || undefined,
         dictation: voice.dictation || undefined,
         dictationHint: voice.hint || undefined,

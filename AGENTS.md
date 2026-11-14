@@ -39,7 +39,7 @@ Every `T3Code_S###` folder has an identical TOC with no `## Dependencies`, and l
 
 ## T3 Code Nightly API
 
-The bridge uses T3 Code's own WebSocket RPC, which changes between nightlies. When a command fails with a schema error ("Missing key …"), check the running server's definitions instead of guessing. For example, `thread.unsettle` needs `reason: "user"`, and projects are created with the `projects.mutate` RPC, not `dispatchCommand`.
+The bridge uses T3 Code's own WebSocket RPC, which changes between nightlies. When a command fails with a schema error ("Missing key …"), check the running server's definitions instead of guessing. For example, `thread.unsettle` needs `reason: "user"`, and projects are created with the `projects.mutate` RPC, not `dispatchCommand`. Side chats are a `thread.fork` with `sideChat: true` and a client-minted `targetThreadId`; they never arrive through `subscribeShell` (read them with `getThreadFamily`), and an older server silently ignores the flag, so gate on `config.environment.capabilities.sideChats`.
 
 ## Testing
 

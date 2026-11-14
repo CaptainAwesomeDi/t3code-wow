@@ -94,3 +94,59 @@ test('reasoning levels: read from the model, set on a selection', () => {
   assert.throws(() => withEffort(sel, 'ultrathink', providers), /doesn't offer ultrathink/);
   assert.throws(() => withEffort({ instanceId: 'claude', model: 'plain' }, 'low', providers), /no reasoning levels/);
 });
+
+test('a side chat forks with a minted id, then sends its first message', async () => {
+  const { T3Client } = await import('../src/t3.js');
+  const c = new T3Client({ tokenProvider: async () => 'x' });
+  const calls = [];
+  c.dispatch = async (cmd) => calls.push(cmd);
+  const res = await c.forkSideChat('parent', 'What did the build say?\n(see log)');
+  assert.equal(calls[0].targetThreadId, res.threadId, 'the fork id is minted before the fork');
+  assert.deepEqual(calls[0], {
+    type: 'thread.fork',
+    sourceThreadId: 'parent',
+    targetThreadId: res.threadId,
+    sourcePoint: { type: 'latest_stable' },
+    sideChat: true,
+    title: 'What did the build say?',
+    createdBy: 'user',
+    creationSource: 'web',
+  });
+  assert.deepEqual(calls[1], {
+    type: 'message.dispatch',
+    threadId: res.threadId,
+    messageId: calls[1].messageId,
+    text: 'What did the build say?\n(see log)',
+    attachments: [],
+    createdBy: 'user',
+    creationSource: 'web',
+    dispatchMode: { type: 'start_immediately' },
+  }, 'the first message starts the fork at once');
+});
+
+test('an unused fork is deleted again when its first message fails', async () => {
+  const { T3Client } = await import('../src/t3.js');
+  const c = new T3Client({ tokenProvider: async () => 'x' });
+  const calls = [];
+  c.dispatch = async (cmd) => {
+    calls.push(cmd);
+    if (cmd.type === 'message.dispatch') throw new Error('boom');
+  };
+  await assert.rejects(() => c.forkSideChat('parent', 'hi'), /boom/);
+  assert.deepEqual(calls[2], { type: 'thread.delete', threadId: calls[0].targetThreadId, onlyIfUnused: true });
+});
+
+test('the thread family is read with getThreadFamily, gated on the server advertising it', async () => {
+  const { T3Client } = await import('../src/t3.js');
+  const c = new T3Client({ tokenProvider: async () => 'x' });
+  const calls = [];
+  c.request = async (tag, payload) => (calls.push([tag, payload]), { threads: [{ id: 'kid' }] });
+  assert.deepEqual(await c.getThreadFamily('t1'), [{ id: 'kid' }]);
+  assert.deepEqual(calls, [['orchestration.getThreadFamily', { threadId: 't1' }]]);
+
+  assert.equal(c.sideChatsSupported(), false);
+  c.config = { environment: { capabilities: { sideChats: true } } };
+  assert.equal(c.sideChatsSupported(), false, 'family reads need shellThreadFamilies too');
+  c.config = { environment: { capabilities: { sideChats: true } }, shellThreadFamilies: true };
+  assert.equal(c.sideChatsSupported(), true);
+});
