@@ -3,7 +3,7 @@
 //
 // Hyprland (and other wlroots compositors) allow screencopy, so `grim` can read the
 // game's pixels on Wayland. KDE Plasma's KWin doesn't, but its ScreenShot2 D-Bus
-// interface does the same job. X11 sessions use ImageMagick's `import`. macOS uses its
+// interface does the same job. X11 prefers maim, with ImageMagick as a fallback. macOS uses its
 // own `screencapture`, which needs the Screen Recording permission.
 
 import { execFile, spawn } from 'node:child_process';
@@ -285,7 +285,7 @@ export class StripCapture {
       if (hyprSocket() && which('grim')) return 'hyprland';
       if (which('grim')) return 'grim';
     }
-    if (process.env.DISPLAY && which('import')) return 'x11';
+    if (process.env.DISPLAY && (which('maim') || which('import'))) return 'x11';
     if (which('grim')) return 'grim';
     return 'none';
   }
@@ -360,7 +360,7 @@ export class StripCapture {
   async grab(wowPid) {
     const backend = this.resolveBackend();
     this.stats.captures++;
-    if (backend === 'none') throw new Error('no capture backend: install grim (Wayland/wlroots) or ImageMagick (X11); on KDE Plasma the bridge uses busctl from systemd');
+    if (backend === 'none') throw new Error('no capture backend: install grim (Wayland/wlroots) or maim/ImageMagick (X11); on KDE Plasma the bridge uses busctl from systemd');
     const px = StripCapture.stripPixels(4);
     if (backend === 'windows') {
       const res = await desktop.grab(wowPid, { ...px, region: this.manualRegion });
@@ -434,8 +434,15 @@ export class StripCapture {
     }
     if (backend === 'x11') {
       const r = this.manualRegion || { x: 0, y: 0 };
+      // maim reads just this rectangle; ImageMagick imports the root before
+      // cropping, which can stall games on large, multi-monitor X11 desktops.
+      if (which('maim')) {
+        const offset = (n) => `${n < 0 ? '' : '+'}${n}`;
+        const buf = await run('maim', ['-u', '-g', `${px.width}x${px.height}${offset(r.x)}${offset(r.y)}`, '-f', 'bmp']);
+        return { status: 'ok', image: parseBMP(buf) };
+      }
       const buf = await run('import', [
-        '-silent', '-window', 'root',
+        '-limit', 'thread', '1', '-silent', '-window', 'root',
         '-crop', `${px.width}x${px.height}+${r.x}+${r.y}`,
         '-depth', '8', 'ppm:-',
       ]);
@@ -489,7 +496,9 @@ export class StripCapture {
       return { data, name, mime: 'image/jpeg' };
     }
     if (backend === 'x11') {
-      const data = await run('import', ['-silent', '-window', 'root', '-quality', '85', 'jpeg:-'], { timeout: 8000 });
+      const data = which('maim')
+        ? await run('maim', ['-u', '-f', 'jpg'], { timeout: 8000 })
+        : await run('import', ['-silent', '-window', 'root', '-quality', '85', 'jpeg:-'], { timeout: 8000 });
       return { data, name, mime: 'image/jpeg' };
     }
     throw new Error('no screenshot backend (install grim)');
