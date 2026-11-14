@@ -162,7 +162,7 @@ function T:Create(parent, header, composer)
 	local inset = UI.Inset(parent)
 	inset:SetPoint("TOPLEFT", header, "BOTTOMLEFT", -2, -4)
 	inset:SetPoint("BOTTOMRIGHT", composer, "TOPRIGHT", 0, 4)
-	self.inset = inset
+	self.inset, self.header, self.top = inset, header, header
 
 	local scrollBox = CreateFrame("Frame", nil, inset, "WowScrollBoxList")
 	scrollBox:SetPoint("TOPLEFT", 4, -4)
@@ -182,6 +182,14 @@ function T:Create(parent, header, composer)
 	self.scrollBox, self.scrollBar, self.view = scrollBox, scrollBar, view
 
 	scrollBox:SetScript("OnSizeChanged", function() T:Relayout() end)
+end
+
+-- What the conversation hangs under: the header, or the family bar while it's shown.
+function T:SetTop(anchor)
+	anchor = anchor or self.header
+	if anchor == self.top then return end
+	self.top = anchor
+	self.inset:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", -2, -4)
 end
 
 function T:Relayout()
@@ -404,8 +412,8 @@ function T:Elements()
 	if v.queued then
 		table.insert(list, Note(ns.Color("orange", v.queued .. (v.queued == 1 and " follow-up is" or " follow-ups are") .. " queued until this run finishes."), "common-icon-undo"))
 	end
-	if t and t.s == "working" then
-		table.insert(list, Note(ns.Color("agent", v.act or t.l or "Working"), "common-icon-undo", { spin = true, since = t.st, live = true }))
+	if t and (t.s == "working" or t.run) then
+		table.insert(list, Note(ns.Color("agent", (t.run and t.l) or v.act or t.l or "Working"), "common-icon-undo", { spin = true, since = t.st, live = true }))
 	elseif t and (t.s == "open" or t.s == "failed" or t.s == "waiting") and ns.db.settings.quickReplies and not p then
 		for _, text in ipairs(QUICK_REPLIES) do
 			table.insert(list, Option(text:gsub("%.$", ""), function() ns.Main:Send(text) end))

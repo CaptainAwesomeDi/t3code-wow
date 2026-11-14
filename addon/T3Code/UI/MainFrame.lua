@@ -14,6 +14,9 @@ local COMPOSER_H = 92
 M.page = "threads"
 M.mode = "thread" -- "thread" | "new"
 
+-- The bottom bar's buttons, left to right.
+M.BAR_KEYS = { "Refresh", "New", "Back", "Stop", "Mic", "Speak", "Shot", "Insert", "Send" }
+
 ---------------------------------------------------------------------------
 -- Frame
 
@@ -238,12 +241,19 @@ function M:CreateThreadsPage(page)
 	box:RegisterCallback("OnEnterPressed", function()
 		if IsShiftKeyDown() then
 			box:Insert("\n")
-		else
+		elseif not ns.Suggest:Accept() then
 			M:Send()
 		end
 	end, M)
-	box:RegisterCallback("OnTextChanged", function() M:UpdateCounter() ns.Interacted() end, M)
-	box:RegisterCallback("OnEscapePressed", function() box:ClearFocus() end, M)
+	box:RegisterCallback("OnTextChanged", function(_, _, userChanged)
+		M:UpdateCounter()
+		ns.Interacted()
+		ns.Suggest:OnTextChanged(userChanged)
+	end, M)
+	box:RegisterCallback("OnEscapePressed", function()
+		if not ns.Suggest:Close() then box:ClearFocus() end
+	end, M)
+	ns.Suggest:Attach(box)
 	right.Composer = box
 	self.composer = box
 	self:SetPlaceholder("Message the agent  (Shift+Enter for a new line)")
@@ -256,6 +266,7 @@ function M:CreateThreadsPage(page)
 	hint:SetPoint("BOTTOMLEFT", 10, 5)
 	right.Hint = hint
 
+	ns.Family:Create(right, header)
 	ns.Transcript:Create(right, header, composer)
 end
 
@@ -312,6 +323,21 @@ function M:CreateButtonBar(f)
 	UI.Tooltip(bar.Shot, "Attach a screenshot", "Adds a screenshot of the game to your next message. Right-click to remove it. /t3 report also adds diagnostics.")
 	UI.Tooltip(bar.Speak, nil, "Read the latest reply aloud.")
 
+	-- The "/" and "$" suggestions as a list, for a controller, which can't type them.
+	-- It opens the shared list, so it carries what the list reads from its owner.
+	bar.Insert = UI.IconButton(f, "Interface\\Icons\\INV_Misc_Book_09", 26, nil, function(self) M:OpenCommandList(self) end)
+	bar.Insert:SetPoint("LEFT", bar.Shot, "RIGHT", 6, 0)
+	bar.Insert.options = {}
+	bar.Insert.listWidth = 360
+	bar.Insert.listAbove = true
+	bar.Insert.Update = function(self) self.value = nil end
+	bar.Insert.onChange = function(value) M:InsertCommand(value) end
+	UI.Tooltip(bar.Insert, "Insert a command or skill", function(self)
+		if self:IsEnabled() then return "Adds it to your message. Typing / or $ in the message box lists them too." end
+		if not M:NextProvider() then return "Pick a thread, or start a new one, first." end
+		return "The model this message goes to has no commands or skills."
+	end)
+
 	bar.Send = UI.Button(f, "Send", 110, function() M:Send() end)
 	bar.Send:SetPoint("BOTTOMRIGHT", -6, 4)
 	f.Bar = bar
@@ -326,7 +352,10 @@ function M:ShowPage(page)
 	for name, p in pairs(f.Pages) do p:SetShown(name == page) end
 	for _, tab in ipairs(f.Tabs) do tab:SetChecked(tab.page == page) end
 	local threads = page == "threads"
-	for _, key in ipairs({ "Back", "Stop", "Mic", "Speak", "Shot", "Send" }) do f.Bar[key]:SetShown(threads) end
+	for _, key in ipairs(M.BAR_KEYS) do
+		-- Refresh and New belong to the thread list: they follow the sidebar instead.
+		if key ~= "Refresh" and key ~= "New" then f.Bar[key]:SetShown(threads) end
+	end
 	f.SidebarToggle:SetShown(threads)
 	if page == "usage" then ns.Usage:Refresh() end
 	if page == "settings" then ns.Settings:Refresh() end
@@ -587,6 +616,11 @@ function M:Send(textOverride)
 	local text = textOverride or self.composer:GetInputText() or ""
 	text = strtrim(text)
 	if text == "" then return end
+	local fam = self.mode ~= "new" and ns.Store:Family()
+	if fam and fam.ro then
+		ns.Print("This subagent is read only: it can't take messages. Message the thread that started it instead.")
+		return
+	end
 	if self.mode == "new" then
 		if self.newSide then
 			-- A side chat: fork the parent thread with this text as the first message.
@@ -602,10 +636,11 @@ function M:Send(textOverride)
 			end
 			local instanceId, slug = ns.Store.SplitModelKey(self:ChosenNewModel())
 			local effort = self:ChosenNewEffort()
+			local worktree = ns.db.settings.newWorktree and "1" or nil
 			local id
-			if effort then
+			if effort or worktree then
 				-- An empty model means T3 Code's default, at this level.
-				id = ns.Transport:Send("new", self.newProject, text, instanceId or "", slug or "", effort)
+				id = ns.Transport:Send("new", self.newProject, text, instanceId or "", slug or "", effort or "", worktree)
 			else
 				id = ns.Transport:Send("new", self.newProject, text, instanceId, slug)
 			end
@@ -637,6 +672,41 @@ function M:Send(textOverride)
 	end
 	PlaySound(SOUNDKIT.TELL_MESSAGE or SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
 	self:Refresh()
+end
+
+-- The next message's provider's commands and skills in the shared list, each group
+-- under its header.
+function M:OpenCommandList(button)
+	local list = ns.Store:Commands(self:NextProvider())
+	if not list then return end
+	local groups = { { label = "Commands", items = {} }, { label = "Skills", items = {} } }
+	for _, e in ipairs(list) do
+		local group = e.t:sub(1, 1) == "/" and groups[1] or groups[2]
+		table.insert(group.items, { value = e.t, label = e.d and (e.t .. "  " .. ns.Color("grey", e.d)) or e.t, group = group.label })
+	end
+	local options = {}
+	for _, group in ipairs(groups) do
+		if #group.items > 0 then
+			table.insert(options, { header = true, label = group.label })
+			for _, o in ipairs(group.items) do table.insert(options, o) end
+		end
+	end
+	button.options = options
+	button.value = nil
+	UI.OpenList(button)
+end
+
+function M:InsertCommand(text)
+	ns.Suggest:InsertAtCursor(text)
+	if ns.Gamepad.capturing then
+		-- Closing the list puts the controller's cursor back on its button a frame
+		-- later; land on the message box after that, where A sends.
+		C_Timer.After(0, function()
+			C_Timer.After(0, function()
+				if ns.Gamepad.capturing then ns.Gamepad:Highlight(self.composer) end
+			end)
+		end)
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -870,25 +940,30 @@ function M:Refresh()
 		header.Project:Hide()
 		f.Bar.Send:SetText("Send")
 		if t then
+			-- A subagent is run by the thread that started it, as in T3 Code, so it has
+			-- no Settle, Snooze or model of its own to pick here.
+			local fam = ns.Store:Family()
+			local subagent = fam and fam.up and fam.up.k == "sub" or false
 			f.Subtitle:SetText(t.title)
 			header.Text:SetText(self:HeaderText(t))
-			header.Action:SetShown(true)
+			header.Action:SetShown(not subagent)
 			header.Action:SetText(t.s == "settled" and "Reopen" or "Settle")
-			header.Archive:SetShown(t.s == "settled")
+			header.Archive:SetShown(not subagent and t.s == "settled")
 			-- Snooze shares Archive's place: a settled thread is archived, any other
 			-- snoozed. Without presets from the bridge there's nothing to offer.
-			local snoozable = t.s ~= "settled" and (t.s == "snoozed" or #self:SnoozeOptions() > 0)
+			local snoozable = not subagent and t.s ~= "settled" and (t.s == "snoozed" or #self:SnoozeOptions() > 0)
 			header.Snooze:SetShown(snoozable)
 			header.Snooze:SetText(t.s == "snoozed" and "Wake" or "Snooze")
 			-- Side chats need the server that hides them, and a first message on the
 			-- thread to fork from: T3 offers them no earlier than that.
 			local view = ns.Store:View()
-			local sideOK = ns.Store.data.bridge.sc and view and view.msgs and #view.msgs > 0
+			local sideOK = not subagent and ns.Store.data.bridge.sc and view and view.msgs and #view.msgs > 0
 			header.SideChat:SetShown(sideOK)
 			local tail = t.s == "settled" and header.Archive or (snoozable and header.Snooze or header.Action)
 			header.SideChat:ClearAllPoints()
 			header.SideChat:SetPoint("RIGHT", tail, "LEFT", -4, 0)
-			local withModel = self:SetupModelDropdown()
+			local withModel = not subagent and self:SetupModelDropdown()
+			if not withModel then header.Model:Hide() end
 			local withEffort = withModel and self:SetupEffortDropdown()
 			if not withEffort then header.Effort:Hide() end
 			header.Model.tipBody = "The model for this thread. A change applies from the next reply on."
@@ -899,12 +974,26 @@ function M:Refresh()
 			header.Model:ClearAllPoints()
 			header.Model:SetPoint("RIGHT", withEffort and header.Effort or anchor, "LEFT", -4, 0)
 			local pickers = (sideOK and 90 or 0) + (withModel and header.Model:GetWidth() + 4 or 0) + (withEffort and header.Effort:GetWidth() + 4 or 0)
-			header.Text:SetPoint("RIGHT", ((t.s == "settled" or snoozable) and -200 or -110) - pickers, 0)
+			local buttons = subagent and 6 or ((t.s == "settled" or snoozable) and 200 or 110)
+			header.Text:SetPoint("RIGHT", -buttons - pickers, 0)
 			local busy = ns.db.settings.steerFollowUps and "Steer the agent" or "Queue a follow-up"
-			self:SetPlaceholder((t.s == "working" and busy or "Message the agent") .. "  (Shift+Enter for a new line)")
+			if fam and fam.ro then
+				self:SetPlaceholder("Read only: this subagent can't take messages.")
+			else
+				self:SetPlaceholder(((t.s == "working" or t.run) and busy or "Message the agent") .. "  (Shift+Enter for a new line)")
+			end
 		else
-			f.Subtitle:SetText(ns.Color("grey", "No thread selected"))
-			header.Text:SetText(ns.Color("grey", "Pick a thread on the left, or start a new one"))
+			if ns.viewId then
+				-- Not in the list and its snapshot hasn't come yet: a relative just opened
+				-- from the family bar shows what the family we hold says about it.
+				local rel = ns.Store:Relative(ns.viewId)
+				local status = rel and rel.s and (ns.Color(ns.Store.StatusColor(rel.s), ns.Store.StatusText(rel.s)) .. "  ·  ") or ""
+				f.Subtitle:SetText(rel and rel.t or ns.Color("grey", "Loading…"))
+				header.Text:SetText(status .. ns.Color("grey", "Loading…"))
+			else
+				f.Subtitle:SetText(ns.Color("grey", "No thread selected"))
+				header.Text:SetText(ns.Color("grey", "Pick a thread on the left, or start a new one"))
+			end
 			header.Action:Hide()
 			header.Archive:Hide()
 			header.Snooze:Hide()
@@ -914,7 +1003,9 @@ function M:Refresh()
 		end
 		right.Hint:SetText(self:ShotHint() or (ns.Gamepad and ns.Gamepad:IsActive() and ns.Gamepad:HintText()) or "")
 	end
-	f.Bar.Stop:SetEnabled(t ~= nil and t.s == "working" and self.mode ~= "new")
+	f.Bar.Stop:SetEnabled(t ~= nil and (t.s == "working" or t.run) and self.mode ~= "new")
+	local fam = self.mode ~= "new" and ns.Store:Family()
+	f.Bar.Send:SetEnabled(not (fam and fam.ro))
 	f.Bar.Stop.Icon:SetDesaturated(not f.Bar.Stop:IsEnabled())
 	local bridge = ns.Store.data.bridge
 	local canDictate = self.dictating or not (bridge and bridge.dictationHint)
@@ -922,8 +1013,13 @@ function M:Refresh()
 	f.Bar.Mic.Icon:SetDesaturated(not canDictate)
 	f.Bar.Mic.Icon:SetVertexColor(self.dictating and 1 or 1, self.dictating and 0.3 or 1, self.dictating and 0.3 or 1)
 	f.Bar.Back:SetEnabled(self.mode == "new" or ns.viewId ~= nil or not f.Pages.threads.Left:IsShown())
+	local commands = ns.Store:Commands(self:NextProvider())
+	f.Bar.Insert:SetEnabled(commands ~= nil)
+	f.Bar.Insert.Icon:SetDesaturated(commands == nil)
 	self:UpdateCounter()
+	ns.Suggest:Sync()
 	ns.ThreadList:Refresh()
+	ns.Family:Refresh()
 	ns.Transcript:Refresh()
 end
 
@@ -962,6 +1058,22 @@ function M:ThreadModel(t)
 		end
 	end
 	return current
+end
+
+-- The machine and provider instance the next message goes to, or nil when no model
+-- is known. Threads on another machine use that machine's providers.
+function M:NextProvider()
+	local env, key
+	if self.mode == "new" then
+		env, key = ns.Store.EnvOf(self.newProject), self:NewThreadModel()
+	else
+		local t = ns.Store:Thread(ns.viewId)
+		if not t then return nil end
+		env, key = ns.Store.EnvOf(t.id), self:ThreadModel(t)
+	end
+	local instanceId = ns.Store.SplitModelKey(key)
+	if not instanceId then return nil end
+	return env, instanceId
 end
 
 -- Fill the model dropdown for what's on screen. Returns whether it's shown.

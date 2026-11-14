@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { Bridge, friendlyError, parseFrame, activityLabel, pendingRequest, runSummary, proposedPlan } from '../src/bridge.js';
+import { Bridge, friendlyError, parseFrame, activityLabel, pendingRequest, runSummary, proposedPlan, commandList } from '../src/bridge.js';
 import { holdOpen } from './hold-open.mjs';
 import { SlotBank, FileInUse, LONG_SILENT_WAV } from '../src/slots.js';
 import { luaValue } from '../src/luaser.js';
@@ -32,9 +32,9 @@ function tempAddons(slots = 8) {
   return dir;
 }
 
-function fakeBridge(slots = 8) {
+function fakeBridge(slots = 8, config = {}) {
   const dir = tempAddons(slots);
-  const b = new Bridge({ addonsDir: dir, config: { slots }, log: () => {}, stateDir: fs.mkdtempSync(path.join(os.tmpdir(), 't3wow-state-')) });
+  const b = new Bridge({ addonsDir: dir, config: { slots, ...config }, log: () => {}, stateDir: fs.mkdtempSync(path.join(os.tmpdir(), 't3wow-state-')) });
   b.proc = { pid: 1, startTicks: 1 };
   currentKeys = b.stripKeys;
   b.persist = { processKey: '1:1', sigCounter: 1, raised: [], handled: {}, slotGuess: 1, gen: 0 };
@@ -114,6 +114,15 @@ test('parseFrame reads hello and commands', () => {
   assert.equal(f.hello.sig, 9);
   assert.equal(f.hello.view, 'tid');
   assert.deepEqual(f.commands[0], { id: 3, verb: 'send', args: ['tid', 'hi there'] });
+});
+
+test('parseFrame reads the hashes of the parts the addon holds: projects, transcript, then family', () => {
+  const f = parseFrame(Buffer.from(['H', 1, 'sess', 'ui1', 5, 9, 123, 'o', 'tid', '0.1.0', '8', 'mh', 'lh', 'ph', 'vh', 'fh'].join(US)));
+  assert.equal(f.hello.models, 'mh');
+  assert.equal(f.hello.list, 'lh');
+  assert.deepEqual(f.hello.hashes, { projects: 'ph', view: 'vh', fam: 'fh' });
+  const older = parseFrame(Buffer.from(['H', 1, 'sess', 'ui1', 5, 9, 123, 'o', 'tid', '0.1.0', '8', 'mh', 'lh', 'ph', 'vh'].join(US)));
+  assert.equal(older.hello.hashes.fam, '', 'an addon without the family reports none');
 });
 
 test('a publish leaves out what the addon already holds, but slots 1-3 stay complete', needsLua, () => {
@@ -212,12 +221,14 @@ test('commands run once, in order, and results are published', async () => {
 test('a picked model rides along with new, and model switches a thread', async () => {
   const { b, calls } = fakeBridge();
   b.t3.setModel = async (...a) => calls.push(['model', ...a]);
-  b.onFrame(frame(1, [['H', 1, 'sess', 'ui1', 1, 1, 0, 'o', 't1', '0.1.0'], ['C', 1, 'new', 'p1', 'go', 'codex', 'gpt-x'], ['C', 2, 'new', 'p1', 'auto'], ['C', 3, 'model', 't1', 'codex', 'gpt-y'], ['C', 4, 'new', 'p1', 'hard', '', '', 'high'], ['C', 5, 'model', 't1', 'codex', 'gpt-y', 'low']]));
+  b.onFrame(frame(1, [['H', 1, 'sess', 'ui1', 1, 1, 0, 'o', 't1', '0.1.0'], ['C', 1, 'new', 'p1', 'go', 'codex', 'gpt-x'], ['C', 2, 'new', 'p1', 'auto'], ['C', 3, 'model', 't1', 'codex', 'gpt-y'], ['C', 4, 'new', 'p1', 'hard', '', '', 'high'], ['C', 5, 'model', 't1', 'codex', 'gpt-y', 'low'], ['C', 6, 'new', 'p1', 'branch it', 'codex', 'gpt-x', 'high', '1'], ['C', 7, 'new', 'p1', 'plain']]));
   await new Promise((r) => setTimeout(r, 20));
   const news = calls.filter((c) => c[0] === 'new');
   assert.deepEqual(news.find((c) => c[2] === 'go')[4], { model: { instanceId: 'codex', model: 'gpt-x' } });
   assert.deepEqual(news.find((c) => c[2] === 'auto')[4], {}, 'no pick: T3 picks as before');
   assert.deepEqual(news.find((c) => c[2] === 'hard')[4], { effort: 'high' }, 'only a level picked: on the default model');
+  assert.deepEqual(news.find((c) => c[2] === 'branch it')[4], { model: { instanceId: 'codex', model: 'gpt-x' }, effort: 'high', worktree: true }, 'the worktree flag rides along');
+  assert.deepEqual(news.find((c) => c[2] === 'plain')[4], {}, 'without the flag, no worktree');
   const models = calls.filter((c) => c[0] === 'model');
   assert.deepEqual(models[0], ['model', 't1', 'codex', 'gpt-y', undefined]);
   assert.deepEqual(models[1], ['model', 't1', 'codex', 'gpt-y', 'low']);
@@ -250,6 +261,56 @@ test('the model list is only sent while the addon reports a different one', () =
   assert.ok(b.buildSnapshot().models, 'a changed list goes out again');
   for (const p of b.t3.local.client.config.providers) p.enabled = false;
   assert.deepEqual(b.buildSnapshot().models.g, [], 'switching off the last provider clears the list');
+  b.stop();
+});
+
+test('the message box suggests the slash commands, then the skills the player can run, each once', () => {
+  const list = commandList({
+    slashCommands: [
+      { name: 'compact', description: 'Summarize the conversation' },
+      { name: 'review', description: 'Review | the diff' },
+      { name: 'not a name', description: 'spaces' },
+      { name: 'usage-limits', description: 'Opens a panel in T3 Code' },
+    ],
+    skills: [
+      { name: 'review', description: 'Also a slash command' },
+      { name: 'deploy', shortDescription: 'Ship it', description: 'A much longer description of shipping it' },
+      { name: 'off', description: 'Switched off', enabled: false },
+      { name: 'auto', description: 'Only the agent runs it', userInvocable: false },
+      { name: 'wordy', description: `First line\n\n  second   line ${'x'.repeat(100)}` },
+      { name: 'quiet' },
+    ],
+  });
+  // A skill that is also a slash command is offered as both: only `$review` runs it mid-message.
+  assert.deepEqual(list.map((c) => c.t), ['/compact', '/review', '$review', '$deploy', '$wordy', '$quiet']);
+  assert.equal(list[1].d, 'Review || the diff', 'escaped for the game');
+  assert.equal(list[3].d, 'Ship it', 'the short description when there is one');
+  assert.equal(list[4].d.includes('\n'), false);
+  assert.ok(list[4].d.startsWith('First line second line x'));
+  assert.equal(Array.from(list[4].d).length, 60, 'descriptions are kept short');
+  assert.ok(list[4].d.endsWith('…'));
+  const many = commandList({ slashCommands: Array.from({ length: 500 }, (_, i) => ({ name: `c${i}` })) });
+  assert.equal(many.length, 200, 'the list is capped');
+  assert.equal(list[5].d, undefined, 'no description, no field');
+  assert.deepEqual(commandList(undefined), []);
+});
+
+test('each provider in the model list carries its own commands and skills', () => {
+  const { b } = fakeBridge();
+  b.t3.local.client.config = {
+    providers: [
+      { instanceId: 'codex', displayName: 'Codex', enabled: true, models: [{ slug: 'a', name: 'A' }], slashCommands: [{ name: 'status', description: 'Show status' }], skills: [{ name: 'lint', description: 'Lint' }] },
+      { instanceId: 'claude', displayName: 'Claude', enabled: true, models: [{ slug: 'o', name: 'O' }] },
+    ],
+  };
+  b.onFrame(frame(1, [['H', 1, 'sess', 'ui1', 1, 1, 0, 'o', '', '0.1.0', '8']]));
+  const first = b.buildSnapshot().models;
+  const [codex, claude] = first.g[0].p;
+  assert.deepEqual(codex.c, [{ t: '/status', d: 'Show status' }, { t: '$lint', d: 'Lint' }]);
+  assert.equal('c' in claude, false, 'a provider with none sends none');
+  b.onFrame(frame(2, [['H', 1, 'sess', 'ui1', 1, 1, 0, 'o', '', '0.1.0', '8', first.h]]));
+  b.t3.local.client.config.providers[0].skills.push({ name: 'fmt' });
+  assert.ok(b.buildSnapshot().models, 'a new skill sends the list again');
   b.stop();
 });
 
@@ -557,6 +618,9 @@ test('markdown formatting', () => {
   assert.match(w, /fn\(\)/);
   // Characters the game's fonts lack would show as boxes.
   assert.equal(markdownToWow('game → bridge ✓ `a ≥ b` — done…'), 'game -> bridge OK |cffa8c7faa ≥ b|r — done…');
+  // Latin Extended letters lose their accents; Latin-1 ones (â î é) stay. Decomposed input too.
+  assert.equal(markdownToWow('Când împărțirea, ştiu Țară, Łódź, café'), 'Când împartirea, stiu Tara, Lódz, café');
+  assert.equal(markdownToWow('și ă'), 'si a');
   assert.equal(markdownToSpeech('**Done**: see [docs](http://x)'), 'Done : see docs');
 });
 
@@ -747,10 +811,30 @@ test('a thread waiting on a watched PR or another thread is waiting, not open', 
   assert.equal(threadStatus(t), 'waiting');
   assert.equal(waitingOn(t), 'Watching pull request #1');
   assert.equal(threadStatus({ ...t, pendingBackgroundTasks: [{ ...watch, awaited: false }] }), 'open');
-  assert.equal(threadStatus({ status: 'completed', blockedOnThreadWait: true }), 'waiting');
-  assert.equal(threadStatus({ ...t, status: 'running', activityRunStatus: 'running' }), 'working', 'running wins');
+  assert.equal(threadStatus({ ...t, status: 'running', activityRunStatus: 'running' }), 'working', 'while its run goes on a thread is Working, as in T3 Code');
   assert.equal(threadStatus({ ...t, pendingRuntimeRequest: { kind: 'approval' } }), 'input', 'needing the player wins');
-  assert.equal(waitingOn({ ...t, status: 'running', activityRunStatus: 'running' }), null);
+});
+
+test('a running thread blocked on another thread is waiting, as in T3 Code', async () => {
+  const { threadStatus, waitingOn } = await import('../src/t3.js');
+  const t = { status: 'running', activityRunStatus: 'running', blockedOnThreadWait: true };
+  assert.equal(threadStatus(t), 'waiting');
+  assert.equal(waitingOn(t), 'Waiting on another thread');
+  assert.equal(threadStatus({ ...t, blockedOnThreadWait: false }), 'working');
+  assert.equal(threadStatus({ status: 'completed', blockedOnThreadWait: true }), 'open', 'the flag counts only during a run');
+});
+
+test('a thread waiting on its subagent or a background task is waiting, as in T3 Code', async () => {
+  const { threadStatus, waitingOn } = await import('../src/t3.js');
+  // The shape T3 Code sends: subagent and background tasks carry no awaited flag.
+  const subagent = { taskId: 'a1', description: 'Build bridge half', kind: 'subagent', providerInstanceId: 'claudeAgent' };
+  const t = { status: 'completed', pendingBackgroundTasks: [subagent] };
+  assert.equal(threadStatus(t), 'waiting');
+  assert.equal(waitingOn(t), 'Build bridge half');
+  assert.equal(threadStatus({ ...t, pendingBackgroundTasks: [{ taskId: 'b', kind: 'background_task' }] }), 'waiting');
+  assert.equal(threadStatus({ ...t, pendingBackgroundTasks: [{ taskId: 'c', kind: 'command' }] }), 'open', 'a background command is not waited on');
+  assert.equal(threadStatus({ ...t, pendingBackgroundTasks: [{ taskId: 'm', kind: 'monitor' }] }), 'open', 'nor is a monitor nobody awaits');
+  assert.equal(threadStatus({ ...t, status: 'failed' }), 'failed', 'a failed run shows as failed, not waiting');
 });
 
 test('a waiting thread is listed with what it waits for, timed from the end of its last run', () => {
@@ -762,6 +846,46 @@ test('a waiting thread is listed with what it waits for, timed from the end of i
   assert.equal(t?.s, 'waiting');
   assert.equal(t?.l, 'Watching pull request #7');
   assert.equal(t?.st, Date.parse('2026-01-01T00:05:00Z') / 1000, 'waiting counts from the end of the last run');
+  assert.equal(t?.run, undefined, 'nothing is running to stop');
+});
+
+test('a thread whose run is blocked on another thread can still be stopped, and churns no slots', () => {
+  const { b } = fakeBridge();
+  const base = { id: 'parent', title: 'Parent', projectId: 'p1', status: 'running', activityRunStatus: 'running', activityRunStartedAt: '2026-01-01T00:00:00Z', blockedOnThreadWait: true,
+    latestVisibleMessage: { role: 'assistant', text: 'Starting the subagent' }, pendingBackgroundTasks: [{ taskId: 'a1', description: 'Build bridge half', kind: 'subagent' }] };
+  b.t3.threads.set('parent', { ...base, updatedAt: '2026-01-01T00:01:00Z' });
+  const first = b.buildSnapshot().threads.find((x) => x.id === 'parent');
+  assert.equal(first?.s, 'waiting');
+  assert.equal(first?.run, true, 'the addon is told the run is still going');
+  assert.equal(first?.st, Date.parse('2026-01-01T00:00:00Z') / 1000, 'timed from the start of the run');
+  b.t3.threads.set('parent', { ...base, updatedAt: '2026-01-01T00:02:00Z', latestVisibleMessage: { role: 'assistant', text: 'Still going' } });
+  const second = b.buildSnapshot().threads.find((x) => x.id === 'parent');
+  assert.deepEqual(second, first, 'tool calls during the run change nothing the game is sent');
+});
+
+test('a subagent thread waiting on its own subagent stays listed', () => {
+  const { b } = fakeBridge();
+  b.t3.threads.set('kid', { id: 'kid', title: 'Kid', projectId: 'p1', status: 'completed', lineage: { parentThreadId: 't1' },
+    updatedAt: new Date().toISOString(), pendingBackgroundTasks: [{ taskId: 'g', kind: 'subagent' }] });
+  assert.equal(b.buildSnapshot().threads.find((x) => x.id === 'kid')?.s, 'waiting');
+});
+
+test('a thread whose child threads still run is waiting on them, as in T3 Code', () => {
+  const { b } = fakeBridge();
+  const said = [];
+  b.announce = (t, status) => said.push(status);
+  const now = new Date().toISOString();
+  // T3 Code lists no pending task on the parent for a delegated child thread.
+  const lead = { id: 'lead', title: 'Lead', projectId: 'p1', status: 'completed', latestRunCompletedAt: '2026-01-01T00:05:00Z', updatedAt: now };
+  const kid = { id: 'kid', title: 'Kid', projectId: 'p1', status: 'running', activityRunStatus: 'running', lineage: { parentThreadId: 'lead' }, updatedAt: now };
+  b.t3.threads.set('lead', lead);
+  b.t3.threads.set('kid', kid);
+  b.onT3Change({ kind: 'thread', prev: { ...lead, status: 'running', activityRunStatus: 'running' }, thread: lead });
+  assert.deepEqual(said, [], 'the parent’s run ending while a child runs is not announced');
+  const row = () => b.buildSnapshot().threads.find((x) => x.id === 'lead');
+  assert.deepEqual([row().s, row().l, row().st], ['waiting', 'Waiting on 1 subagent', Date.parse('2026-01-01T00:05:00Z') / 1000]);
+  b.t3.threads.set('kid', { ...kid, status: 'completed', activityRunStatus: null });
+  assert.equal(row().s, 'open', 'done once its children are');
 });
 
 test('ending a turn into waiting is not announced; the wait ending is', async () => {
@@ -875,4 +999,168 @@ test('a family fetch merges side chats in and drops the ones that went away', as
   const w = fleet.wrapThread({ code: 'e1' }, { id: 'kid', projectId: 'p1', lineage: { parentThreadId: 'p', rootThreadId: 'p', sideChat: true } });
   assert.equal(w.id, 'e1~kid');
   assert.equal(w.lineage.parentThreadId, 'e1~p');
+});
+
+const at = (min) => new Date(Date.UTC(2026, 10, 1, 0, min)).toISOString();
+
+function lineage(parent, relationship = 'subagent') {
+  return { parentThreadId: parent, relationshipToParent: parent ? relationship : null, rootThreadId: parent || 'lead' };
+}
+
+// A lead thread with an idle and a busy subagent, delivered as T3 Code's shell.
+function family(b) {
+  const now = new Date().toISOString();
+  const shell = (threads) => b.t3.local.client.onShell({ kind: 'snapshot', snapshot: { threads } });
+  shell([
+    { id: 'lead', title: 'Lead | the work', projectId: 'p1', status: 'completed', createdAt: at(0), updatedAt: now, lineage: lineage(null) },
+    { id: 'idle', title: 'A | b' + 'c'.repeat(100), projectId: 'p1', status: 'completed', createdAt: at(1), updatedAt: now, latestRunCompletedAt: at(9), lineage: lineage('lead') },
+    { id: 'busy', title: 'Busy', projectId: 'p1', status: 'running', activityRunStatus: 'running', activityRunStartedAt: at(3), createdAt: at(2), updatedAt: now, lineage: lineage('lead') },
+  ]);
+  const update = (id, change) => b.t3.local.client.onShell({ kind: 'thread.updated', thread: { ...b.t3.local.client.threads.get(id), ...change } });
+  return { update };
+}
+
+function view(b, id) {
+  b.client = { session: 'sess', ui: 'ui1', ackedSeq: -1, flags: 'o', view: id, hashes: {} };
+  return b.buildSnapshot();
+}
+
+test('the open thread’s family: its children, its parent, and its own header when the list leaves it out', () => {
+  const { b } = fakeBridge();
+  family(b);
+  const long = 'A || b' + 'c'.repeat(75);
+
+  const lead = view(b, 'lead');
+  assert.deepEqual(lead.fam, {
+    id: 'lead',
+    me: undefined,
+    up: undefined,
+    kids: [
+      { id: 'idle', t: long, s: 'open', k: 'sub', env: undefined },
+      { id: 'busy', t: 'Busy', s: 'working', k: 'sub', env: undefined },
+    ],
+  }, 'children in start order; a title is cut to 80 characters, then escaped');
+
+  const idle = view(b, 'idle');
+  assert.ok(!idle.threads.some((t) => t.id === 'idle'), 'an idle subagent is not listed');
+  assert.deepEqual(idle.fam.up, { id: 'lead', t: 'Lead || the work', s: 'open', k: 'sub', env: undefined });
+  assert.equal(idle.fam.kids, undefined);
+  const me = idle.fam.me;
+  assert.deepEqual([me.id, me.title, me.p, me.s, me.l], ['idle', 'A || b' + 'c'.repeat(100), 'p1', 'open', 'Finished'], 'the header a list row would give');
+  assert.equal(me.u, Date.parse(at(9)) / 1000, 'aged from the end of its last run');
+  assert.equal(me.last, undefined);
+
+  const busy = view(b, 'busy');
+  assert.ok(busy.threads.some((t) => t.id === 'busy'), 'a working subagent is listed');
+  assert.equal(busy.fam.me, undefined, 'so it needs no header of its own');
+  assert.equal(busy.fam.up.id, 'lead');
+
+  const lone = view(b, 't1');
+  assert.equal(lone.fam, undefined, 'a listed thread with no relatives has no family part');
+  assert.equal(lone.x.f, '');
+  b.stop();
+});
+
+test('a subagent the provider started takes its status from its parent, where T3 Code keeps it', async () => {
+  const { b } = fakeBridge();
+  const now = new Date().toISOString();
+  // The shape T3 Code sends for Claude's own subagents: the subagent's thread stays idle
+  // while it runs, and the parent's projection lists it with its real status.
+  b.t3.local.client.onShell({ kind: 'snapshot', snapshot: { threads: [
+    { id: 'lead', title: 'Lead', projectId: 'p1', status: 'running', activityRunStatus: 'running', createdAt: at(0), updatedAt: now, lineage: lineage(null) },
+    { id: 'kid', title: 'Hold', projectId: 'p1', status: 'idle', creationSource: 'provider', createdAt: at(1), updatedAt: now, lineage: lineage('lead') },
+  ] } });
+  let status = 'running';
+  b.t3.threadProjection = async (id) => ({ messages: [], turnItems: [], runtimeRequests: [], runs: [], subagents: id === 'lead' ? [{ childThreadId: 'kid', status }] : [] });
+
+  b.client = { session: 'sess', ui: 'ui1', ackedSeq: -1, flags: 'o', view: 'lead', hashes: {} };
+  await b.refreshView('lead', true);
+  assert.equal(view(b, 'lead').fam.kids[0].s, 'working', 'a running subagent is working, not finished');
+  status = 'failed';
+  await b.refreshView('lead', true);
+  assert.equal(view(b, 'lead').fam.kids[0].s, 'failed');
+  status = 'completed';
+  await b.refreshView('lead', true);
+  assert.equal(view(b, 'lead').fam.kids[0].s, 'open');
+
+  status = 'running';
+  b.views.clear();
+  b.client.view = 'kid';
+  await b.refreshView('kid', true);
+  await b.views.get('lead')?.inflight;
+  assert.equal(view(b, 'kid').threads.find((r) => r.id === 'kid')?.s, 'working', 'opening the subagent loads its parent, so its own row is right too');
+  assert.equal(view(b, 'kid').fam.ro, true, 'a subagent its provider started takes no messages, so the game is told');
+  assert.equal(view(b, 'lead').fam?.ro, undefined, 'its parent does');
+  status = 'waiting';
+  b.client.view = 'lead';
+  await b.refreshView('lead', true);
+  assert.equal(view(b, 'lead').fam.kids[0].s, 'waiting', 'a subagent waiting on its own work shows as waiting');
+  b.stop();
+});
+
+test('a relative on another machine is named with it, and a sender on an unknown machine can’t be opened', () => {
+  const { b } = fakeBridge(8, { environments: [{ code: 'e1', id: 'env-laptop', label: 'Laptop | 2', urls: [] }] });
+  family(b);
+  b.t3.local.client.onConfig({ type: 'snapshot', config: { environment: { environmentId: 'env-desk', label: 'Desk' } } });
+  const [, laptop] = b.t3.envs;
+  laptop.client.onShell({ kind: 'snapshot', snapshot: { threads: [
+    { id: 'helper', title: 'Helper', projectId: 'lp', status: 'completed', createdAt: at(5), updatedAt: at(6), delegatedFrom: { environmentId: 'env-desk', threadId: 'lead', title: 'Lead' } },
+    { id: 'stray', title: 'Stray', projectId: 'lp', status: 'completed', createdAt: at(5), updatedAt: at(6), delegatedFrom: { environmentId: 'env-gone', threadId: 'x', title: 'From | afar' } },
+  ] } });
+
+  assert.deepEqual(view(b, 'lead').fam.kids.at(-1), { id: 'e1~helper', t: 'Helper', s: 'open', k: 'sent', env: 'Laptop || 2' });
+  assert.deepEqual(view(b, 'e1~helper').fam.up, { id: 'lead', t: 'Lead || the work', s: 'open', k: 'sent', env: 'Desk' });
+  assert.deepEqual(view(b, 'e1~stray').fam.up, { id: undefined, t: 'From || afar', s: undefined, k: 'sent', env: undefined });
+  b.stop();
+});
+
+test('the family part keeps its hash through replies and a child’s tool calls, and a hidden child’s update costs no publish', () => {
+  const { b } = fakeBridge();
+  const { update } = family(b);
+  const leadDetail = { messages: [{ role: 'assistant', text: 'one', createdAt: at(4) }], turnItems: [], runtimeRequests: [], runs: [] };
+  b.views.set('lead', { projection: leadDetail, fetchedAt: Date.now() });
+  const first = view(b, 'lead');
+
+  leadDetail.messages.push({ role: 'assistant', text: 'two', createdAt: at(5) });
+  b.views.set('busy', { projection: { runs: [{ id: 'r' }], turnItems: [{ runId: 'r', type: 'command_execution', status: 'running', input: 'ls' }] }, fetchedAt: Date.now() });
+  update('busy', { updatedAt: new Date(Date.now() + 1000).toISOString() });
+  const later = b.buildSnapshot();
+  assert.notEqual(later.x.v, first.x.v, 'the transcript changed');
+  assert.equal(later.threads.find((t) => t.id === 'busy').l, 'Running ls', 'the child’s activity changed');
+  assert.equal(later.x.f, first.x.f);
+
+  b.t3.on('change', (ev) => b.onT3Change(ev));
+  assert.ok(b.publishNow());
+  update('idle', { updatedAt: new Date(Date.now() + 2000).toISOString(), lastVisitedAt: new Date().toISOString() });
+  assert.equal(b.publishNow(), false, 'a hidden child’s update with nothing shown changed');
+  update('idle', { title: 'Renamed', updatedAt: new Date(Date.now() + 3000).toISOString() });
+  assert.ok(b.publishNow(), 'its new title is shown, so it goes');
+
+  update('idle', { status: 'running', activityRunStatus: 'running', updatedAt: new Date(Date.now() + 4000).toISOString() });
+  assert.notEqual(b.buildSnapshot().x.f, first.x.f, 'a child starting work changes the family');
+  b.stop();
+});
+
+test('the family part is left out of later slots while the addon holds it, never out of slots 1-3', () => {
+  const { b, dir } = fakeBridge();
+  const { update } = family(b);
+  const slot = (i) => fs.readFileSync(path.join(dir, `T3Code_S${String(i).padStart(3, '0')}`, 'Inbox.lua'), 'latin1');
+  const hello = (seq, x = {}) => b.onFrame(frame(seq, [['H', 1, 'sess', 'ui1', 4, 1, b.lastGen, 'o', 'idle', '0.1.0', '8', '', x.l || '', x.p || '', x.v || '', x.f || '']]));
+  hello(1);
+  const first = b.buildSnapshot();
+  assert.ok(b.publishNow('test'));
+  // Its next hello says it applied that snapshot.
+  hello(2, first.x);
+  assert.equal(b.client.hashes.fam, first.x.f);
+  assert.ok(b.publishNow('test'));
+  for (const i of [1, 2, 3]) assert.match(slot(i), /fam=\{id="idle"/, `slot ${i} is complete`);
+  assert.doesNotMatch(slot(4), /fam=/, 'no second copy of the family');
+  assert.match(slot(4), /same="pvf"/);
+
+  // The parent starts a run: the family changed, so the addon's copy is stale.
+  update('lead', { status: 'running', activityRunStatus: 'running', updatedAt: new Date(Date.now() + 1000).toISOString() });
+  assert.ok(b.publishNow('test'));
+  assert.match(slot(4), /fam=\{id="idle"/, 'a changed family is sent');
+  assert.equal(b.client.hashes.fam, null, 'and the old hash is no longer trusted');
+  b.stop();
 });

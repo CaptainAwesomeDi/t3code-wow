@@ -31,10 +31,13 @@ const WORKING = new Set(['preparing', 'queued', 'starting', 'running', 'waiting'
 export function threadStatus(t, now = Date.now()) {
   if (t.archivedAt || t.deletedAt) return 'archived';
   if (t.pendingRuntimeRequest) return 'input';
-  if (t.activityRunStatus || WORKING.has(t.status)) return 'working';
-  // Between runs but still waiting on something (a watched PR, another thread): T3
-  // lists these as "Waiting" under Working.
+  // As T3 Code's sidebar: a thread whose run goes on is Working, unless that run is
+  // blocked waiting on another thread. Pending work (a subagent, a background task, a
+  // watched PR) makes only a thread whose run has ended show as Waiting.
+  const blocked = t.blockedOnThreadWait && (t.activityRunStatus ?? t.status) === 'running';
+  if (isRunning(t) && !blocked) return 'working';
   if (waitingOn(t)) return 'waiting';
+  if (isRunning(t)) return 'working';
   // Snoozed until a time still ahead: out of the way until then. A thread that needs
   // an answer or is running shows regardless.
   if (snoozedUntil(t, now)) return 'snoozed';
@@ -45,12 +48,21 @@ export function threadStatus(t, now = Date.now()) {
   return 'open';
 }
 
-// What an idle-but-waiting thread is waiting for, or null.
+// T3 Code waits on a subagent or background task even without the awaited flag, but
+// not on a background command or an unawaited monitor.
+const AWAITED_KINDS = new Set(['subagent', 'background_task']);
+
+export function isRunning(t) {
+  return Boolean(t.activityRunStatus) || WORKING.has(t.status);
+}
+
+// What a waiting thread is waiting for, or null. As T3 Code's sidebar: an awaited task
+// makes the thread wait even while its run goes on, unless the run failed, and the
+// thread-wait flag counts only during a run.
 export function waitingOn(t) {
-  if (t.activityRunStatus || WORKING.has(t.status)) return null;
-  const task = (t.pendingBackgroundTasks || []).find((b) => b?.awaited);
+  const task = t.status !== 'failed' && (t.pendingBackgroundTasks || []).find((b) => b?.awaited || AWAITED_KINDS.has(b?.kind));
   if (task) return task.description || 'Waiting';
-  return t.blockedOnThreadWait ? 'Waiting on another thread' : null;
+  return t.blockedOnThreadWait && (t.activityRunStatus ?? t.status) === 'running' ? 'Waiting on another thread' : null;
 }
 
 export function isUnread(t) {
@@ -327,9 +339,11 @@ export class T3Client extends EventEmitter {
   }
 
   subscribeAll() {
+    // Idle subagent threads too: a thread's family is read from this shell. They only
+    // cost the first snapshot, since an idle thread sends no updates.
     this.request(
       'orchestration.subscribeShell',
-      { omitIdleSubagents: true, omitOlderSettled: true },
+      { omitIdleSubagents: false, omitOlderSettled: true },
       { onChunk: (v) => this.onShell(v), timeout: 0 },
     ).catch((err) => this.log(`shell subscription ended: ${err.message}`));
     this.request('subscribeServerConfig', {}, { onChunk: (v) => this.onConfig(v), timeout: 0 }).catch((err) =>
@@ -436,7 +450,7 @@ export class T3Client extends EventEmitter {
     });
   }
 
-  // opts: { title, model ({ instanceId, model }), effort (a reasoning level id), runtimeMode ('full-access' | 'approval-required' | ...), interactionMode ('default' | 'plan') }
+  // opts: { title, model ({ instanceId, model }), effort (a reasoning level id), runtimeMode ('full-access' | 'approval-required' | ...), interactionMode ('default' | 'plan'), worktree (start in a fresh git worktree off the project's checkout) }
   launchThread(projectId, text, attachments = [], opts = {}) {
     const settings = this.config?.settings || {};
     const auto = this.defaultModelFor(projectId);
@@ -457,7 +471,9 @@ export class T3Client extends EventEmitter {
       modelSelection,
       runtimeMode: opts.runtimeMode || settings.defaultRuntimeMode || 'full-access',
       interactionMode: opts.interactionMode || 'default',
-      workspaceStrategy: { type: 'root' },
+      // A worktree thread gets its own checkout on its own branch (named by T3), based
+      // on what the project has checked out right now.
+      workspaceStrategy: opts.worktree ? { type: 'worktree', baseRef: 'HEAD' } : { type: 'root' },
       initialMessage: { messageId: randomUUID(), text, attachments },
     }, { timeout: 60000 });
   }

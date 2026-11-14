@@ -70,21 +70,29 @@ drive T3 Code's UI directly. Only install addons you trust.
 
 The frame is packed into 3-bit cells. Each cell is a 3×3-pixel square with R, G and B
 each fully on or off. The strip is 160 cells per row and up to 40 rows (about 2.4 KB),
-scaled so one UI unit is one physical pixel. It is anchored at the top-left of
-`UIParent` on the TOOLTIP strata. The bridge searches cell sizes 2–8 and small offsets,
-so a border or scaling quirk doesn't break it.
+scaled so one UI unit is one physical pixel. It is anchored 9 physical pixels right of
+and below the top-left corner of `UIParent`, on the TOOLTIP strata. Desktops that round
+window corners cut into that corner and draw a border along its edges: Windows 11 rounds
+by 8 pixels at 100 percent scaling and 16 at 200 percent, and Linux compositors can be
+set to round too. 9 pixels in, the strip's first cell is clear of a corner rounded by
+up to about 34 pixels. Bridges from before the inset look up to 9 pixels in, so they
+find it only when their capture starts at the game's corner; a border of a pixel or more
+(a windowed game on KDE Plasma, say) hides it from them until the bridge is updated. The bridge searches cell sizes 2–8 and offsets from the corner to a
+little past the inset, so a border or scaling quirk doesn't break it, and a strip an
+older addon draws in the corner itself is found too.
 
 The payload is records separated by `RS` (0x1E), with fields separated by `US` (0x1F):
 
 ```
-H  1  session  ui  nextSlot  sigNext  gen  flags  viewThreadId  addonVersion  slotCount  modelsHash  listHash  projectsHash  viewHash
+H  1  session  ui  nextSlot  sigNext  gen  flags  viewThreadId  addonVersion  slotCount  modelsHash  listHash  projectsHash  viewHash  familyHash
 C  id  verb  args…                      (one per queued command)
 ```
 
 - `session` is persistent (SavedVariables). `ui` is new every load, so the bridge can
   tell a `/reload` happened.
-- `modelsHash` is the hash of the model list the addon holds (empty until it has one). The bridge sends the list, several KB, only while this differs from its own, so it costs one publish after a `/reload` or a change in T3 Code instead of every publish.
-- `listHash`, `projectsHash` and `viewHash` are the hashes of the thread list, the project list and the transcript the addon holds (empty until it has one). The bridge leaves the project list and the transcript (up to 60 KB) out of a publish while they still match, and names them in the snapshot's `same` field so the addon keeps them. Only a part the snapshot actually carried is recorded, and the bridge stops trusting a hash as soon as it publishes a different part, so a part can be repeated but never dropped.
+- `modelsHash` is the hash of the model list the addon holds (empty until it has one). The bridge sends the list (tens of KB with many commands and skills: at most 200 per provider, descriptions cut to 60 characters) only while this differs from its own, so it costs one publish after a `/reload` or a change in T3 Code instead of every publish.
+- `listHash`, `projectsHash`, `viewHash` and `familyHash` are the hashes of the thread list, the project list, the transcript and the open thread's family the addon holds (empty until it has one). The bridge leaves the project list, the transcript (up to 60 KB) and the family out of a publish while they still match, and names them in the snapshot's `same` field (`p`, `v`, `f`) so the addon keeps them. Only a part the snapshot actually carried is recorded, and the bridge stops trusting a hash as soon as it publishes a different part, so a part can be repeated but never dropped. `PARTS` in `bridge.js` and `Store.PARTS` in the addon list these parts in the hello's order.
+- The addon queues a command only if it would still fit beside the hello after the hello grows: another thread opened (a subagent's id is about 125 characters) and every hash filled in. A command that didn't fit would never go, and would hold up the commands behind it.
 - `flags`:
   - `o`: window open
   - `t`: tracker on
@@ -93,7 +101,7 @@ C  id  verb  args…                      (one per queued command)
   - `s`: sound signals unavailable
 - Verbs:
   - `send`, `new`, `stop`
-  - `model` (`threadId instanceId model [effort]`). `new` takes the same `instanceId model [effort]` after its text; without a model T3 Code's own default applies, and an empty `instanceId model` with an `effort` sets only the reasoning level on that default. `effort` is a level id from the model's list (`low`, `high`, …); without it the thread keeps the options last used with that model
+  - `model` (`threadId instanceId model [effort]`). `new` takes the same `instanceId model [effort]` after its text; without a model T3 Code's own default applies, and an empty `instanceId model` with an `effort` sets only the reasoning level on that default. `effort` is a level id from the model's list (`low`, `high`, …); without it the thread keeps the options last used with that model. `new` ends with an optional `worktree` (`1`): the thread starts in its own git worktree, a branch of its own based on the project's current checkout, named by T3 Code
   - `side` (`parentThreadId text`): fork the thread into a side chat with `text` as its first message. The parent needs a message already, and the bridge refuses when the server doesn't advertise side chats
   - `settle`, `unsettle`, `archive`, `read`
   - `approve`, `answer`
@@ -137,11 +145,12 @@ A publish works like this:
 1. Build the snapshot: threads, projects, the viewed thread's messages, pending
    question or approval, usage, bridge status, command results and the ack. The
    model list rides along only when the addon's `modelsHash` is out of date.
-   It is grouped per machine and provider, and each model points at one of a few shared sets of reasoning levels instead of carrying its own. Threads carry their reasoning level (`re`), projects the level their default model uses (`de`).
+   It is grouped per machine and provider, and each model points at one of a few shared sets of reasoning levels instead of carrying its own. Each provider also carries its slash commands and skills, which the message box suggests when the player types `/` or `$`. Threads carry their reasoning level (`re`), projects the level their default model uses (`de`).
+   The open thread's family (`fam`) is a part of its own. `up` is the thread it came from: the thread that started a subagent, a fork's source, a side chat's thread, or the thread on another machine that sent it here. `kids` are the threads it started, in the order they started. Each carries a title, a status, its kind (`sub`, `fork`, `side`, `sent`) and its machine when that's another one. A sender on a machine the bridge doesn't know has no id, so the game shows it but can't open it. When the open thread isn't in the list (an idle subagent), `me` carries its list row, so the window still has its header. The family leaves out activity, message text and update times, so it only changes when a relative's title or status does, or a relative comes or goes. It's absent when there's nothing to show.
 2. Write it to the slots the addon will load next (from its last confirmed position
    to a little past the bridge's prediction) and to slots 1–3 (what a `/reload`
    bootstraps from). Slots 1–3 always carry the complete snapshot; the others leave
-   out the transcript and the project list when the addon's hello says it has them.
+   out the transcript, the project list and the family when the addon's hello says it has them.
 3. Ring the next **bell**.
 
 **Bells (the "new update" signal).** Measured on this client:
@@ -231,7 +240,7 @@ Windows support is new. This section says how the bridge runs in the background 
 
 **One bridge at a time.** Two bridges would both read the same strip frame and run the same command, so a message could reach the agent twice. The supervisor records itself and its bridge in `running.json` in the state folder, each as a pid and a start time, because Windows gives a pid to another program once its process is gone. A new supervisor doesn't start while a recorded one is running. Install, restart and uninstall wait for the recorded supervisor and bridge to be gone before they start or delete anything, and end them after 8 seconds if they're still there.
 
-**What hides the strip.** A screen copy reads whatever is on screen. So before each copy the helper asks Windows which window is at 279 points over the strip: one every 16 pixels, and along the strip's far edges. If the window at any point isn't the game, the helper reads the game through `PrintWindow` instead. That catches every window at least 16 pixels wide and high over any part of the strip. A smaller window can sit between the points and hide part of the strip. An overlay that another program draws over the game's top-left corner, such as a frame-rate counter, also hides the strip while it's there, as on the other platforms. Windows doesn't report a click-through overlay as the window at a point, so the helper doesn't see one as covering.
+**What hides the strip.** A screen copy reads whatever is on screen. So before each copy the helper asks Windows which window is at 288 points over the strip, both where the addon draws it 9 pixels in and where older addons drew it in the corner: one every 16 pixels, and along the strip's far edges. If the window at any point isn't the game, the helper reads the game through `PrintWindow` instead. That catches every window at least 16 pixels wide and high over any part of the strip. A smaller window can sit between the points and hide part of the strip. An overlay that another program draws over the game's top-left corner, such as a frame-rate counter, also hides the strip while it's there, as on the other platforms. Windows doesn't report a click-through overlay as the window at a point, so the helper doesn't see one as covering.
 
 **A game that isn't responding.** `PrintWindow` waits for the game's own window thread, however long that takes. So a game window that isn't answering can't be read through it, and the helper can do nothing else while it waits. Once Windows reports the window as not responding, the helper doesn't call `PrintWindow`: a covered corner reads as hidden, and a screenshot is refused with that reason. Windows puts its own stand-in window over a game in that state, which counts as a cover. Windows takes 5 seconds to report it. A `PrintWindow` call made in those 5 seconds still waits, and the bridge's time limit on the request ends the helper if the game takes longer.
 
@@ -250,10 +259,12 @@ Windows support is new. This section says how the bridge runs in the background 
 - In game (Windows 11, a 3840x2160 HDR display at 100 percent scaling, Windowed mode): the bridge found the client and the addon connected with the link encrypted. In the first 19 minutes the bridge decoded 431 frames and rejected none. The bells rang: every publish raised one bell and the addon loaded one slot, and it never reported its self-test failing. Across 80 publishes no rename was refused. `read`, `model` and `send` from the game reached T3 Code, including a thread on a second machine.
 - With a small window over the strip corner, a grab went through `PrintWindow` in 33 to 41 ms and decoded. Uncovered, the screen copy took 4 to 11 ms.
 - While the game was minimized the bridge read it as hidden. The addon used 30 slots in those 10 minutes before its first hello was read.
+- In Windowed (Fullscreen) mode (the same display, 100 percent scaling, HDR on), with a tool that rounds every window's corners: the game window has no frame there, so its client area is the whole monitor, and its top-left corner was rounded by about 8 pixels, blended, black outside, with a 1-pixel grey border along the top row and the left column. Where the addon drew the strip then, in the corner itself, that blacked out its first cell: 181 of 181 screen copies over 75 s found no strip, although it was on screen with clean colours in every one. Read through `PrintWindow`, the same window decoded, so the game draws the strip whole and the corner is cut when Windows puts the window on the screen. `PrintWindow` took 52 ms per grab of the 3840x2160 window, and what that costs the game's frame time is unmeasured, so it isn't the way round this. In Windowed mode the rounded corners fall on the title bar, outside the client area, and the strip was read as before. With the strip drawn 9 pixels in from the corner (see the strip above), in the same mode with the same tool running, the addon connected with the link encrypted, and the bridge decoded 305 frames and rejected none.
 
 **Not checked in game yet.** Each of these needs a session in game, and the results belong here:
 
-- Whether the strip decodes in Windowed (Fullscreen) mode, with display scaling above 100 percent, and on a second monitor.
+- Whether the strip decodes with display scaling above 100 percent, and on a second monitor.
+- The helper's check for a window over the strip now looks at the 489 by 129 pixels from the client area's top-left, which take the strip drawn 9 pixels in. It compiles under Windows PowerShell 5.1, and `T3WOW_SCREEN_TEST` now puts a 16x16 window over only the strip's far end, but that check hasn't been run with the wider check yet.
 - Windows 10, and Windows on ARM.
 - Whether a message sent while another window covers the game's corner still arrives.
 - How the client opens slot and bell files, and how often a long session has a publish wait for one.

@@ -242,11 +242,21 @@ if hdr.Effort:IsShown() then
 else
 	check(false, "the reasoning picker shows for " .. pick.label)
 end
-ns.Main.composer._text = "Build a thing"
-ns.Main:Send()
-check(ns.Transport:Payload():find("\031new\031", 1, true) ~= nil, "new-thread command in payload")
-local pickI, pickS = ns.Store.SplitModelKey(pick.value)
-check(ns.Transport:Payload():find("Build a thing\031" .. pickI .. "\031" .. pickS .. (level and ("\031" .. level) or ""), 1, true) ~= nil, "picked model and level ride along with the new thread")
+do
+	local wt
+	for _, cb in ipairs(ns.Settings.checks or {}) do if cb.key == "newWorktree" then wt = cb end end
+	check(wt and not wt:GetChecked(), "worktree is a setting, off by default")
+	wt:SetChecked(true) -- the stub's Click runs the handler but doesn't flip the box
+	wt:Click()
+	check(ns.db.settings.newWorktree == true, "ticking the setting remembers worktree threads")
+	ns.Main.composer._text = "Build a thing"
+	ns.Main:Send()
+	local pickI, pickS = ns.Store.SplitModelKey(pick.value)
+	check(ns.Transport:Payload():find("Build a thing\031" .. pickI .. "\031" .. pickS .. "\031" .. (level or "") .. "\0311", 1, true) ~= nil, "the worktree setting rides along with the new thread")
+	wt:SetChecked(false)
+	wt:Click()
+	check(ns.db.settings.newWorktree == false, "unticking stops worktree threads")
+end
 ns.Transport:Apply({ gen = data.gen + 2, results = { { id = ns.Main.pendingNew, ok = true, open = firstThread.id } }, threads = data.threads, projects = data.projects, bridge = data.bridge, usage = data.usage, ack = { ui = ns.ui, seq = ns.Transport.stripSeq } })
 check(ns.Main.mode == "thread" and ns.viewId == firstThread.id, "result opened the new thread")
 check(#ns.Transport.queue == 0, "all commands acknowledged")
@@ -285,6 +295,8 @@ do
 		return data.gen
 	end
 	data.view = { id = parent, msgs = { { r = "u", t = "First message", at = 1, n = 1 } } }
+	-- A snapshot from this machine's own bridge may already advertise side chats.
+	data.bridge.sc = nil
 	step()
 	ns.Transport:Apply(data)
 	check(not hdr.SideChat:IsShown(), "no side-chat button before the bridge says the server has them")
@@ -426,7 +438,21 @@ found.always.frame:Click()
 check(ns.Transport:Payload():find("approve\031" .. ns.viewId .. "\031ap1\031acceptAlways", 1, true) ~= nil, "Always allow sends acceptAlways")
 data.gen = data.gen + 1
 data.view.pending = nil
-for _, th in ipairs(data.threads) do if th.id == ns.viewId then th.s = "open" end end
+for _, th in ipairs(data.threads) do if th.id == ns.viewId then th.s = "waiting" th.run = true th.l = "Build bridge half" end end
+ns.Transport:Apply(data)
+check(ns.Main.frame.Bar.Stop:IsEnabled(), "a run waiting on its subagent can be stopped")
+found = {}
+for _, r in ipairs(ns.Transcript.scrollBox._rows) do
+	if r.ed.live then found.live = r.ed.text end
+	if r.ed.label == "Carry on" then found.option = true end
+end
+check(found.live and found.live:find("Build bridge half", 1, true) and not found.option, "the transcript shows what the run waits on, not quick replies")
+data.gen = data.gen + 1
+for _, th in ipairs(data.threads) do if th.id == ns.viewId then th.run = nil end end
+ns.Transport:Apply(data)
+check(not ns.Main.frame.Bar.Stop:IsEnabled(), "waiting between runs has nothing to stop")
+data.gen = data.gen + 1
+for _, th in ipairs(data.threads) do if th.id == ns.viewId then th.s = "open" th.l = nil end end
 ns.Transport:Apply(data)
 
 -- Notices wait during combat
@@ -458,6 +484,149 @@ ns.Main:Report("the list flickers")
 check(ns.Main.composer._text:find("the list flickers", 1, true) and ns.Main.composer._text:find("diagnostics", 1, true), "report fills the message box")
 check(ns.Transport:Payload():find("\031shot\031", 1, true) ~= nil, "report asks the bridge for a screenshot")
 ns.Main.composer._text = ""
+
+-- Suggestions above the message box: "/" lists the provider's slash commands, "$" its
+-- skills. The checks bring their own list, so they don't depend on the snapshot's.
+do
+	local S, main = ns.Suggest, ns.Main
+	local box = main.composer
+	local eb = box:GetEditBox()
+	for _, g in ipairs(data.models and data.models.g or {}) do
+		for _, p in ipairs(g.p or {}) do
+			if p.c then check(ns.Store:Commands(g.e or "", p.i) == p.c, "the snapshot's commands and skills are kept for " .. p.i .. ": " .. #p.c) end
+		end
+	end
+	local env, instanceId = main:NextProvider()
+	check(instanceId ~= nil, "the open thread's provider is known: " .. tostring(instanceId))
+	local saved = ns.Store.commands
+	local list = {
+		{ t = "/pr-comments", d = "Get comments from a pull request" },
+		{ t = "/compact", d = "Summarize the conversation" },
+		{ t = "/review" },
+		{ t = "/status", d = "Show || status" },
+		{ t = "$deploy", d = "Ship it" },
+		{ t = "$code-review", d = "Review the code" },
+	}
+	ns.Store.commands = { [env] = { [instanceId] = list } }
+	local function typed(text, cursor)
+		box._text, eb._cursor, box._focus = text, cursor, true
+		Stub.Callback(box, "OnTextChanged", eb, true)
+	end
+	local function names()
+		local out = {}
+		for _, e in ipairs(S.state and S.state.matches or {}) do table.insert(out, e.t) end
+		return table.concat(out, " ")
+	end
+	local queued = #ns.Transport.queue
+
+	typed("/")
+	check(S.state and S.frame:IsShown() and names() == "/pr-comments /compact /review /status", "a bare / lists every slash command: " .. names())
+	local p = S.frame._points[1]
+	check(p[1] == "BOTTOMLEFT" and p[2] == main.frame.Pages.threads.Right.ComposerInset and p[3] == "TOPLEFT", "the list sits on top of the message box")
+	typed("$")
+	check(names() == "$deploy $code-review", "$ lists the skills: " .. names())
+	typed("/CO")
+	check(names() == "/compact /pr-comments", "typing filters it, names that start with the text first: " .. names())
+	typed("/zzz")
+	check(S.state == nil and not S.frame:IsShown(), "nothing matches: no list")
+	typed("path/to/file")
+	check(S.state == nil, "a / inside a word is not a command")
+
+	typed("/co")
+	eb._scripts.OnKeyDown(eb, "DOWN")
+	check(S.state.index == 2 and eb:GetCursorPosition() == 3, "Down moves the highlight and leaves the cursor where it was")
+	eb._scripts.OnTabPressed(eb)
+	check(box._text == "/pr-comments " and eb:GetCursorPosition() == #box._text and S.state == nil, "Tab puts the highlighted one in, with a space: " .. box._text)
+
+	typed("fix this /re now", 12)
+	check(names() == "/review", "a token mid-message is suggested too: " .. names())
+	eb._scripts.OnTabPressed(eb)
+	check(box._text == "fix this /review now" and eb:GetCursorPosition() == 17, "it replaces the token without doubling the space after it: " .. box._text)
+
+	typed("/comp")
+	Stub.Callback(box, "OnEnterPressed", eb)
+	check(box._text == "/compact " and #ns.Transport.queue == queued and S.state == nil, "Enter with the list open puts the command in and sends nothing")
+	local shift = IsShiftKeyDown
+	_G.IsShiftKeyDown = function() return true end
+	typed("/comp")
+	Stub.Callback(box, "OnEnterPressed", eb)
+	_G.IsShiftKeyDown = shift
+	check(box._text == "/comp\n" and #ns.Transport.queue == queued, "Shift+Enter still starts a new line")
+
+	local long = {}
+	for i = 1, 20 do long[i] = { t = string.format("/cmd%02d", i) } end
+	ns.Store.commands = { [env] = { [instanceId] = long } }
+	typed("/")
+	for _ = 1, 9 do eb._scripts.OnKeyDown(eb, "DOWN") end
+	check(S.state.index == 10 and S.state.offset == 3 and S.frame.Rows[8].index == 10, "Down past the last row scrolls the list")
+	S.frame._scripts.OnMouseWheel(S.frame, -1)
+	check(S.state.offset == 6 and S.state.index == 10, "the wheel scrolls it")
+	S.frame._scripts.OnMouseWheel(S.frame, 1)
+	S.frame._scripts.OnMouseWheel(S.frame, 1)
+	check(S.state.offset == 1 and S.state.index == 8, "and keeps the highlight among the rows on screen")
+	ns.Store.commands = { [env] = { [instanceId] = list } }
+
+	typed("/st")
+	S.frame.Rows[1]:Click()
+	check(box._text == "/status " and box._focus and S.state == nil, "a click picks it and keeps the message box focused")
+
+	typed("/")
+	Stub.Callback(box, "OnEscapePressed", eb)
+	check(S.state == nil and not S.frame:IsShown() and box._focus, "Esc closes the list and keeps the message box")
+	Stub.Callback(box, "OnEscapePressed", eb)
+	check(not box._focus, "Esc again leaves the message box")
+
+	typed("/compact please")
+	check(S.state == nil, "past the token the list is closed")
+	Stub.Callback(box, "OnEnterPressed", eb)
+	check(#ns.Transport.queue == queued + 1 and ns.Transport:Payload():find("/compact please", 1, true) ~= nil, "Enter with the list closed sends the message as typed")
+	table.remove(ns.Transport.queue)
+	ns.Transcript.echo[ns.viewId] = nil
+
+	box._focus, box._text = false, "/"
+	Stub.Callback(box, "OnTextChanged", eb, true)
+	check(S.state == nil, "no list while the message box isn't focused")
+	typed("/")
+	Stub.Callback(box, "OnTextChanged", eb, false)
+	check(S.state == nil, "text the addon puts in the box closes the list")
+	typed("/")
+	main.frame:Hide()
+	check(S.state == nil, "closing the window closes the list")
+	main:Open()
+	typed("/")
+	main:StartNewThread()
+	check(S.state == nil, "starting a new thread closes the list")
+	main:Back()
+
+	local insert = main.frame.Bar.Insert
+	main:Refresh()
+	check(insert:IsEnabled(), "the insert button is on when the provider has a list")
+	box._text, eb._cursor = "run", nil
+	insert:Click()
+	local l = ns.UI.ListOpen()
+	check(l and l.owner == insert and l._points[1][1] == "BOTTOMLEFT" and l._points[1][3] == "TOPLEFT", "it opens the shared list above itself")
+	local headers, row = {}, nil
+	for _, r in ipairs(l.Box._rows) do
+		if r.ed.header then table.insert(headers, r.ed.label) end
+		if r.ed.value == "$deploy" then row = r.frame end
+	end
+	check(table.concat(headers, ",") == "Commands,Skills", "commands and skills under their own headers: " .. table.concat(headers, ","))
+	row:Click()
+	check(ns.UI.ListOpen() == nil and box._text == "run $deploy " and box._focus, "a pick goes in at the cursor, after a space: " .. box._text)
+
+	ns.Store.commands = {}
+	main:Refresh()
+	check(not insert:IsEnabled(), "the insert button is off when the provider has no list")
+	typed("/")
+	check(S.state == nil, "and typing / suggests nothing")
+
+	ns.Store.commands = saved
+	box:SetText("")
+	box._focus = false
+	ns.db.drafts[ns.viewId] = nil
+	ns.db.drafts.__new = nil
+	main:Refresh()
+end
 
 -- Attending flag: set while the window is in use, cleared after 90s idle
 ns.Main:Open()
@@ -510,6 +679,26 @@ check(f._scripts.OnGamePadStick(f, "Left", 0, -1) == false, "left stick consumed
 check(down(f, "PADFORWARD") == false and f._shown == false and not ns.Gamepad.capturing, "Start closes the window and gives the controller back")
 ns.Main:Open()
 check(ns.Gamepad.capturing, "reopened window takes the controller again")
+-- Commands and skills from the controller: the bar's insert button, then a row.
+do
+	local saved = ns.Store.commands
+	local env, instanceId = ns.Main:NextProvider()
+	ns.Store.commands = { [env] = { [instanceId] = { { t = "/compact" }, { t = "$deploy" } } } }
+	ns.Main:Refresh()
+	local insert, reachable = f.Bar.Insert, false
+	for _, c in ipairs(ns.Gamepad:Candidates()) do if c.w == insert then reachable = true end end
+	check(reachable, "the controller can reach the insert button")
+	ns.Main.composer:SetText("")
+	ns.Gamepad:Highlight(insert)
+	down(f, "PAD1")
+	check(ns.UI.ListOpen() and ns.UI.ListOpen().owner == insert, "A on it opens the list")
+	down(f, "PAD1")
+	check(ns.Main.composer._text == "/compact " and ns.Gamepad.selected == ns.Main.composer, "A on a row puts it in and lands on the message box")
+	ns.Store.commands = saved
+	ns.Main.composer:SetText("")
+	ns.Main.composer._focus = false
+	ns.Main:Refresh()
+end
 -- The model picker sits on the header row: D-pad to it, A opens its list, B closes it.
 do
 	local prevView = ns.viewId
@@ -623,6 +812,253 @@ check(not ns.Main.composer._focus, "B leaves the message box")
 down(f, "PAD2")
 check(not f._shown, "B closes the window")
 check(not ns.Gamepad.capturing, "controller released on close")
+
+-- The open thread's family is a snapshot part of its own, like the transcript: kept
+-- while `same` names it, recorded only when it was sent, and reported in the hello.
+do
+	local Store = ns.Store
+	local savedView, savedFam = ns.viewId, data.fam
+	ns.viewId = data.threads[1].id
+	local fam = { id = ns.viewId, kids = { { id = "kid-1", t = "A child", s = "working", k = "sub" } } }
+	local function apply(part)
+		data.gen = data.gen + 1
+		part.gen, part.threads, part.bridge, part.usage = data.gen, data.threads, data.bridge, data.usage
+		part.ack = { ui = ns.ui, seq = ns.Transport.stripSeq }
+		ns.Transport:Apply(part)
+	end
+	apply({ x = { l = "L1", p = "P1", v = "V1", f = "F1" }, projects = data.projects, view = data.view, fam = fam })
+	check(Store.familyKey == "F1" and Store:Family() == fam, "the addon records the family it was sent")
+	apply({ same = "pvf", x = { l = "L2", p = "P2", v = "V2", f = "F2" } })
+	check(Store:Family() == fam and Store.familyKey == "F1", "an omitted family is kept, under the hash it came with")
+	local tail = "\031V1\031F1"
+	check(ns.Transport:Hello():sub(-#tail) == tail, "the hello ends with the family's hash, after the transcript's")
+	apply({ same = "pv", x = { l = "L3", p = "P1", v = "V1", f = "" } })
+	check(Store.data.fam == nil and Store.familyKey == "", "a family neither sent nor kept is gone, and its hash isn't claimed")
+	ns.viewId, data.fam = savedView, savedFam
+	data.gen = data.gen + 1
+	ns.Transport:Apply(data)
+end
+
+-- A command the addon accepts must still fit beside the hello after the player opens a
+-- subagent, whose id is about 125 characters, or it would never go.
+do
+	local T, Store = ns.Transport, ns.Store
+	local savedView, savedQueue = ns.viewId, T.queue
+	T.queue = {}
+	local saved = { Store.listKey, Store.projectsKey, Store.viewKey, Store.familyKey }
+	local hash = string.rep("a", 16)
+	local project = Store.data.projects[1].id
+	ns.viewId = nil
+	Store.listKey, Store.projectsKey, Store.viewKey, Store.familyKey = hash, hash, "", ""
+	local function accepted(n)
+		local before = #T.queue
+		T:Send("new", project, string.rep("x", n))
+		if #T.queue == before then return false end
+		table.remove(T.queue)
+		return true
+	end
+	local lo, hi = 0, 3000
+	while hi - lo > 1 do
+		local mid = math.floor((lo + hi) / 2)
+		if accepted(mid) then lo = mid else hi = mid end
+	end
+	check(lo >= 2000, "a new thread of 2,000 characters still goes: up to " .. lo)
+	T:Send("new", project, string.rep("x", lo))
+	ns.viewId = "e1~thread:delegated-task:" .. string.rep("s", 105)
+	Store.viewKey, Store.familyKey = hash, hash
+	check(T:Payload():find(string.rep("x", lo), 1, true) ~= nil, "the longest one accepted still fits once a subagent is open")
+	-- A Claude subagent's id is longer still (about 210 characters): a command that no
+	-- longer fits is dropped with a notice, so the commands behind it still go.
+	ns.viewId = "e1~thread:delegated-task:" .. string.rep("s", 185)
+	T:Send("read", "after-it")
+	local payload = T:Payload()
+	check(payload:find(string.rep("x", lo), 1, true) == nil and payload:find("after-it", 1, true) ~= nil and #T.queue == 1,
+		"a command outgrown by a long thread id is dropped, and the queue behind it goes on")
+	table.remove(T.queue)
+	ns.viewId = "00000000-0000-0000-0000-000000000000"
+	T:Send("send", ns.viewId, string.rep("x", 2000), "steer")
+	check(#T.queue == 1, "a 2,000-character message to an open thread still goes")
+	ns.viewId, T.queue = savedView, savedQueue
+	Store.listKey, Store.projectsKey, Store.viewKey, Store.familyKey = saved[1], saved[2], saved[3], saved[4]
+end
+
+-- A subagent its provider started takes no messages (T3 Code refuses them): the window
+-- says so and sends nothing.
+do
+	local savedFam, savedMode, wasShown = ns.Store.data.fam, ns.Main.mode, ns.Main.frame:IsShown()
+	ns.Main.frame:Show()
+	ns.Main.mode = "thread"
+	ns.Store.data.fam = { id = ns.viewId, ro = true, up = { t = "Lead", k = "sub" } }
+	ns.Main:Refresh()
+	check(not ns.Main.frame.Bar.Send:IsEnabled(), "Send is off for a read-only subagent")
+	local queued = #ns.Transport.queue
+	ns.Main:Send("hello?")
+	check(#ns.Transport.queue == queued, "and nothing is sent to it")
+	ns.Store.data.fam, ns.Main.mode = savedFam, savedMode
+	ns.Main:Refresh()
+	check(ns.Main.frame.Bar.Send:IsEnabled(), "Send comes back for an ordinary thread")
+	if not wasShown then ns.Main.frame:Hide() end
+end
+
+-- The family bar: the thread the open one came from, and the threads it started.
+local FAMILY_PARENT = "thread:project:" .. string.rep("p", 36)
+local function KidId(n) return "thread:delegated-task:" .. string.rep("c", 96) .. string.format("-%03d", n) end
+local familyKids = {}
+for n = 1, 31 do
+	familyKids[n] = { id = KidId(n), t = "Child " .. n, s = n == 1 and "input" or (n <= 3 and "working" or "settled"), k = "sub", env = n == 4 and "laptop" or nil }
+end
+local function ParentFamily()
+	local project = ns.Store.data.projects[1].id
+	return { id = FAMILY_PARENT, me = { id = FAMILY_PARENT, title = "Refactor the slot writer", p = project, s = "working", l = "Working", st = time() - 600 }, kids = familyKids }
+end
+local function ChildFamily(n, up, kids)
+	local project = ns.Store.data.projects[1].id
+	return {
+		id = KidId(n),
+		me = { id = KidId(n), title = "Child " .. n, p = project, s = familyKids[n].s, l = "Settled", u = time() - 60 },
+		up = up or { id = FAMILY_PARENT, t = "Refactor the slot writer", s = "working", k = "sub" },
+		kids = kids,
+	}
+end
+local function ShowFamily(fam)
+	data.fam = fam
+	data.view = { id = fam.id, msgs = {} }
+	data.gen = data.gen + 1
+	ns.Transport:Apply(data)
+end
+local savedFamily = { view = ns.viewId, fam = data.fam, data = data.view }
+local bar = ns.Family.bar
+local plain = ns.StripMarkup
+
+do
+	ns.Main:Open()
+	ns.Main:SelectThread(FAMILY_PARENT)
+	check(not f.Subtitle:GetText():find("No thread selected", 1, true), "a thread that isn't loaded yet is never shown as no thread selected")
+	ShowFamily(ParentFamily())
+	check(f.Subtitle:GetText() == "Refactor the slot writer" and hdr.Action:IsShown(), "a thread left out of the list gets its full header from the row sent with its family")
+	check(bar:IsShown() and bar.Kids:IsShown() and not bar.Up:IsShown(), "a thread with children shows the Kids button, and no Up link without a parent")
+	local insetTop
+	for _, pt in ipairs(ns.Transcript.inset._points) do if pt[1] == "TOPLEFT" then insetTop = pt[2] end end
+	check(insetTop == bar, "the conversation hangs under the bar")
+	check(plain(bar.Kids:GetText()) == "Subagents (31) · 1 needs you", "Kids counts the children and how many need you: " .. plain(bar.Kids:GetText()))
+
+	bar.Kids:Click()
+	local l = ns.UI.ListOpen()
+	check(l and l.owner == bar.Kids and #l.Box._rows == 31 and l.Search:IsShown(), "Kids opens the shared list with every child, and its search box")
+	check(plain(l.Box._rows[1].ed.label) == "Needs you  Child 1" and plain(l.Box._rows[4].ed.label) == "Settled  Child 4  · laptop", "each row reads status first, then title, then another machine")
+	l.Box._rows[5].frame:Click()
+	check(ns.viewId == KidId(5) and not l:IsShown(), "clicking a child in the list opens it")
+	check(f.Subtitle:GetText() == "Child 5" and hdr.Text:GetText():find("Loading…", 1, true) and not hdr.Action:IsShown(), "until its snapshot comes, the header shows the child from the family held, loading")
+	check(not bar:IsShown(), "the bar waits for the child's own family")
+	for _, pt in ipairs(ns.Transcript.inset._points) do if pt[1] == "TOPLEFT" then insetTop = pt[2] end end
+	check(insetTop == hdr, "without the bar, the conversation hangs under the header")
+
+	ShowFamily(ChildFamily(5))
+	check(bar.Up:IsShown() and bar.Up:IsEnabled() and not bar.Kids:IsShown(), "a subagent's bar links to its parent")
+	check(plain(bar.Up.Text:GetText()) == "Started by: Refactor the slot writer" and plain(bar.Up.Status:GetText()) == "Working", "Up names the parent and its status")
+	check(f.Subtitle:GetText() == "Child 5" and hdr.Text:GetText():find("Settled", 1, true), "the child's header fills in from its own row")
+	check(not hdr.Action:IsShown() and not hdr.Snooze:IsShown() and not hdr.Archive:IsShown() and not hdr.Model:IsShown() and not hdr.Effort:IsShown(), "a subagent's header has no Settle, Snooze or model picker: the thread that started it runs it")
+	bar.Up:Click()
+	check(ns.viewId == FAMILY_PARENT and f.Subtitle:GetText() == "Refactor the slot writer", "Up opens the parent, its title shown at once from the family held")
+	check(plain(hdr.Text:GetText()) == "Working  ·  Loading…", "with its status, loading: " .. plain(hdr.Text:GetText()))
+
+	for _, case in ipairs({
+		{ up = { id = FAMILY_PARENT, t = "Base", s = "open", k = "fork" }, text = "Forked from: Base" },
+		{ up = { id = FAMILY_PARENT, t = "Base", s = "open", k = "side" }, text = "Side chat of: Base" },
+		{ up = { id = "e1~sender", t = "Base", s = "open", k = "sent", env = "laptop" }, text = "Sent from laptop: Base" },
+		{ up = { t = "Base", k = "sent" }, text = "Sent from another computer: Base", off = true },
+	}) do
+		ns.Main:SelectThread(KidId(6))
+		ShowFamily(ChildFamily(6, case.up))
+		check(plain(bar.Up.Text:GetText()) == case.text and bar.Up:IsEnabled() == not case.off, "Up reads " .. case.text .. (case.off and ", and can't be opened" or ""))
+	end
+
+	local function label(kinds, statuses)
+		local kids = {}
+		for n, k in ipairs(kinds) do kids[n] = { k = k, s = statuses[n] } end
+		return plain(ns.Family.KidsLabel(kids))
+	end
+	check(label({ "fork", "fork" }, { "open", "settled" }) == "Forks (2)", "Kids names forks")
+	check(label({ "side" }, { "working" }) == "Side chats (1) · 1 working", "Kids names side chats, with how many are working")
+	check(label({ "sent", "sent" }, { "input", "plan" }) == "Sent to other computers (2) · 2 need you", "Kids names threads sent away, with how many need you")
+	check(label({ "sub", "fork", "sent" }, { "waiting", "working", "open" }) == "Started here (3) · 2 working", "mixed children are threads started here")
+end
+
+-- Controller: the bar is a row of its own in the conversation column.
+do
+	local G = ns.Gamepad
+	check(G.capturing, "the controller drives the window")
+	local grandkids = { { id = "thread:grandchild", t = "Grandchild", s = "open", k = "sub" } }
+	ns.Main:SelectThread(KidId(7))
+	ShowFamily(ChildFamily(7, { id = FAMILY_PARENT, t = "Refactor the slot writer", s = "working", k = "fork" }, grandkids))
+	check(hdr.Action:IsShown(), "a fork keeps its own Settle")
+	G:Highlight(hdr.Action)
+	down(f, "PADDDOWN")
+	check(G.selected == bar.Up, "Down from Settle goes to Up")
+	down(f, "PADDRIGHT")
+	check(G.selected == bar.Kids, "Right from Up goes to Kids")
+	down(f, "PADDLEFT")
+	check(G.selected == bar.Up, "Left from Kids goes back to Up")
+	down(f, "PADDLEFT")
+	local inList = false
+	for _, r in ipairs(ns.ThreadList.scrollBox._rows) do if r.frame == G.selected and r.ed.thread then inList = true end end
+	check(inList, "Left past Up goes to the thread list")
+	G:Highlight(bar.Up)
+	down(f, "PADDUP")
+	check(G.selected == hdr.Action, "Up from the bar goes back to Settle")
+	G:Highlight(ns.Main.composer)
+	down(f, "PADDUP")
+	check(G.selected == bar.Up, "Up from the message box goes to the bar")
+
+	down(f, "PAD1")
+	check(ns.viewId == FAMILY_PARENT and G.selected == ns.Main.composer, "A on Up opens the parent; the cursor waits on the message box")
+	ShowFamily(ParentFamily())
+	check(G.selected == bar.Kids, "once the parent's bar shows, the cursor is on Kids, the way back")
+
+	down(f, "PAD1")
+	local l = ns.UI.ListOpen()
+	check(l and l.owner == bar.Kids, "A on Kids opens the list")
+	local function onRow()
+		for _, r in ipairs(l.Box._rows) do if r.frame == G.selected then return r.ed.value end end
+	end
+	check(onRow() == KidId(1), "the cursor starts on the first child")
+	for _ = 1, 40 do down(f, "PADDDOWN") end
+	check(onRow() == KidId(31), "Down walks the list by its order to the last of 31 children")
+	down(f, "PADDUP")
+	check(onRow() == KidId(30), "and Up steps back")
+	down(f, "PADDDOWN")
+	-- In game the list's close is handled a frame later; run the timers in that order.
+	local queued, after = {}, C_Timer.After
+	C_Timer.After = function(_, fn) table.insert(queued, fn) end
+	down(f, "PAD1")
+	C_Timer.After = after
+	for _, fn in ipairs(queued) do fn() end
+	check(ns.viewId == KidId(31) and G.selected == ns.Main.composer, "A opens that child, and the list closing doesn't pull the cursor off the message box")
+	ShowFamily(ChildFamily(31))
+	check(G.selected == bar.Up, "once the child's bar shows, the cursor is on Up, the way back")
+	down(f, "PADDUP")
+	check(G.selected == bar.Up, "on a subagent the bar is the top of the column")
+
+	down(f, "PAD1")
+	down(f, "PADDDOWN")
+	ShowFamily(ParentFamily())
+	check(ns.viewId == FAMILY_PARENT and G.selected == f.Bar.Send, "a cursor the player moved while it loaded stays where they put it")
+
+	ns.Main:SelectThread(KidId(8))
+	ShowFamily(ChildFamily(8, { t = "Elsewhere", k = "sent" }))
+	local candidate = false
+	for _, c in ipairs(G:Candidates()) do if c.w == bar.Up then candidate = true end end
+	check(bar.Up:IsShown() and not candidate, "a link to a computer the bridge doesn't know is shown, but the cursor can't land on it")
+	G:Highlight(hdr.Action)
+	down(f, "PADDDOWN")
+	check(G.selected == ns.Main.composer, "Down from Settle passes it by")
+end
+
+ns.Main:SelectThread(savedFamily.view)
+data.fam, data.view = savedFamily.fam, savedFamily.data
+data.gen = data.gen + 1
+ns.Transport:Apply(data)
+f:Hide()
 
 -- Launching without a keyboard
 check(ns.Launcher.chord == "PADLTRIGGER-PADRTRIGGER-PADBACK", "controller shortcut: both triggers + Back")
@@ -779,6 +1215,9 @@ do
 
 	-- A link that goes stale on its own clock, with no update arriving to say so, still
 	-- reaches the tracker: the once-a-second tick notices the state changed.
+	-- The notice shows only beside a thread, and the snapshot may have none running.
+	local savedThreads = ns.Store.data.threads
+	ns.Store.data.threads = { { id = "w1", title = "Working", s = "working", st = time() - 60, p = "p" } }
 	ns.Transport.bridgeNow = time() - 1000
 	ns.Tracker:RefreshTimers()
 	local found = false
@@ -793,6 +1232,8 @@ do
 		if b._shown and b.Title:GetText():find("Connection lost", 1, true) then found = true end
 	end
 	check(not found, "and that it is back")
+	ns.Store.data.threads = savedThreads
+	ns.Tracker:Refresh()
 end
 
 -- Minimap button

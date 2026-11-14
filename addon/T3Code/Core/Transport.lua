@@ -26,6 +26,11 @@ ns.Transport = T
 local SLOT_FMT = "T3Code_S%03d"
 local SIG_FMT = "Interface\\AddOns\\T3Code\\Signals\\%05d.wav"
 local CELL = 3 -- physical pixels per strip square
+-- Physical pixels between the strip and the game's top-left corner, across and down.
+-- Desktops that round window corners (Windows 11 tools, compositors) cut into that
+-- corner and draw a border along its edges. Clear of a corner rounded by up to about
+-- 34 pixels, and still where older bridges look for the strip.
+local INSET = 9
 local SIGNAL_POLL = 0.5
 local MIN_LOAD_GAP = 0.6
 local SHOW_FOR = 20 -- seconds a strip stays up without an acknowledgement
@@ -293,16 +298,27 @@ function T:Acknowledge(seq)
 	end
 end
 
--- Queue a command for the bridge. Returns its id.
 -- A command that can't fit in a frame next to the hello would never go, and would
 -- hold up every command queued after it, so it's refused here. The hello grows after
--- a command is queued (a thread picked, its hashes filled in), so leave room for that.
-local HELLO_GROWTH = 96
+-- a command is queued: its counters and flags, the thread picked and a hash for each
+-- part it doesn't hold yet. Leave room for that. (A subagent Claude started has an id of
+-- about 210 characters; one that still outgrows the room is dropped in T:Payload.)
+local LONGEST_ID, HASH_LEN, COUNTERS = 160, 16, 10
 
+local function HelloGrowth()
+	local Store = ns.Store
+	local grow = COUNTERS + math.max(0, LONGEST_ID - #(link and ns.viewId or ""))
+	local keys = { Store.listKey }
+	for _, part in ipairs(Store.PARTS) do table.insert(keys, Store[part.key]) end
+	for _, key in ipairs(keys) do grow = grow + math.max(0, HASH_LEN - #(link and key or "")) end
+	return grow
+end
+
+-- Queue a command for the bridge. Returns its id.
 function T:Send(verb, ...)
 	local db = ns.db
 	local rec = Codec.Record({ "C", (db.cmdId or 0) + 1, verb, ... })
-	if #self:Hello() + 1 + #rec + HELLO_GROWTH > Codec.MAX_PAYLOAD - Codec.SEAL_OVERHEAD then
+	if #self:Hello() + 1 + #rec + HelloGrowth() > Codec.MAX_PAYLOAD - Codec.SEAL_OVERHEAD then
 		ns.Print("That's too long to send from the game. Shorten it to about 2,000 characters and try again.")
 		return nil
 	end
@@ -329,12 +345,13 @@ end
 function T:Hello()
 	local db = ns.db
 	-- Without keys, only a bare hello (no thread id) so the bridge sends them.
-	return Codec.Record({
+	local fields = {
 		"H", 1, db.session, ns.ui, self.slotCursor, db.sigNext or 1, db.gen or 0,
 		self:Flags(), link and ns.viewId or "", ns.version, self.slotCount,
-		ns.Store.modelsHash or "", link and ns.Store.listKey or "", link and ns.Store.projectsKey or "",
-		link and ns.Store.viewKey or "",
-	})
+		ns.Store.modelsHash or "", link and ns.Store.listKey or "",
+	}
+	for _, part in ipairs(ns.Store.PARTS) do table.insert(fields, link and ns.Store[part.key] or "") end
+	return Codec.Record(fields)
 end
 
 function T:Payload()
@@ -342,6 +359,16 @@ function T:Payload()
 	if not link then return hello end
 	local limit = Codec.MAX_PAYLOAD - Codec.SEAL_OVERHEAD
 	local parts, size = { hello }, #hello
+	-- A command too long to go even on its own, beside the hello as it is now (a long
+	-- thread id was opened after it was queued), would hold up the queue forever: drop it.
+	while self.queue[1] do
+		local cmd = self.queue[1]
+		local fields = { "C", cmd.id, cmd.verb }
+		for i = 1, #cmd.args do fields[#fields + 1] = cmd.args[i] end
+		if size + 1 + #Codec.Record(fields) <= limit then break end
+		table.remove(self.queue, 1)
+		ns:Fire("CommandResult", { id = cmd.id, ok = false, msg = "That was too long to send with this thread open. Shorten it and try again." })
+	end
 	for _, cmd in ipairs(self.queue) do
 		local fields = { "C", cmd.id, cmd.verb }
 		for i = 1, #cmd.args do fields[#fields + 1] = cmd.args[i] end
@@ -374,7 +401,7 @@ local function LayoutStrip()
 	local _, physH = GetPhysicalScreenSize()
 	s:SetScale(768 / (physH or 1080))
 	s:ClearAllPoints()
-	s:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, 0)
+	s:SetPoint("TOPLEFT", UIParent, "TOPLEFT", INSET, -INSET)
 	s:SetSize(Codec.CELLS_PER_ROW * CELL, Codec.MAX_ROWS * CELL)
 end
 

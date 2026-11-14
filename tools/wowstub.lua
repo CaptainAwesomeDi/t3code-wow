@@ -9,6 +9,12 @@ _G.WOWSTUB = Stub
 
 local function noop() end
 
+-- A ScrollingEditBox's inner EditBox shows its owner's text.
+local function TextOf(self)
+	local owner = rawget(self, "_owner")
+	return (owner or self)._text or ""
+end
+
 local GETTERS = {
 	GetWidth = function(self) return self._w or 600 end,
 	GetHeight = function(self) return self._h or 400 end,
@@ -24,7 +30,13 @@ local GETTERS = {
 	IsEnabled = function(self) return self._enabled ~= false end,
 	GetAtlas = function(self) return self._atlas end,
 	GetPoint = function() return "CENTER", nil, "CENTER", 0, 0 end,
-	GetEditBox = function(self) self._eb = self._eb or Stub.NewFrame("EditBox") return self._eb end,
+	GetEditBox = function(self)
+		self._eb = self._eb or Stub.NewFrame("EditBox")
+		self._eb._owner = self
+		return self._eb
+	end,
+	-- A byte offset, at the end of the text until something moves it.
+	GetCursorPosition = function(self) local n = #TextOf(self) return math.min(self._cursor or n, n) end,
 	IsObjectType = function() return false end,
 	GetName = function(self) return self._name end,
 	GetParent = function(self) return self._parent end,
@@ -50,7 +62,12 @@ local SETTERS = {
 	SetWidth = function(self, w) self._w = w end,
 	SetHeight = function(self, h) self._h = h end,
 	SetSize = function(self, w, h) self._w, self._h = w, h end,
-	SetText = function(self, t) self._text = t and tostring(t) or "" end,
+	SetText = function(self, t)
+		self._text = t and tostring(t) or ""
+		self._cursor = nil
+		if self._eb then self._eb._cursor = nil end
+	end,
+	SetCursorPosition = function(self, n) self._cursor = n end,
 	Show = function(self)
 		local was = self._shown
 		self._shown = true
@@ -173,6 +190,16 @@ function Stub.StripCells()
 	return out
 end
 
+-- Where the strip's top-left corner sits, as x, y offsets down and right from the game's
+-- top-left corner. The strip is scaled so that one of its units is one physical pixel.
+function Stub.StripOrigin()
+	local strip = _G.T3CodeLinkStrip
+	for _, pt in ipairs(strip and strip._points or {}) do
+		if pt[1] == "TOPLEFT" and pt[2] == _G.UIParent then return pt[4] or 0, -(pt[5] or 0) end
+	end
+	return 0, 0
+end
+
 function Stub.NewFrame(kind, parent, name, template)
 	local f = setmetatable({ _kind = kind, _scripts = {}, _parent = parent, _name = name, _shown = kind ~= "Frame" and nil or nil }, FrameMT)
 	-- Frames start shown in WoW unless hidden; track only explicit Show/Hide for OnShow.
@@ -266,7 +293,7 @@ _G.C_GamePad = {
 Stub.slotCount = 600
 Stub.loadedSlots = {}
 _G.C_AddOns = {
-	GetAddOnMetadata = function(_, key) return key == "Version" and "0.4.0" or nil end,
+	GetAddOnMetadata = function(_, key) return key == "Version" and "0.5.0" or nil end,
 	DoesAddOnExist = function(name)
 		local n = tonumber(name:match("T3Code_S(%d+)"))
 		return n ~= nil and n <= Stub.slotCount
@@ -346,6 +373,13 @@ function Stub.Fire(event, ...)
 	for frame in pairs(Stub.events[event] or {}) do
 		if frame._scripts.OnEvent then frame._scripts.OnEvent(frame, event, ...) end
 	end
+end
+
+-- Fire a callback registered with RegisterCallback (a ScrollingEditBox's OnTextChanged,
+-- say), as the frame's mixin would.
+function Stub.Callback(frame, event, ...)
+	local cbs = rawget(frame, "_callbacks")
+	if cbs and cbs[event] then cbs[event](...) end
 end
 
 function Stub.Tick(seconds)
