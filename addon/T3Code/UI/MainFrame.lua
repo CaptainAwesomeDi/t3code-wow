@@ -191,12 +191,14 @@ function M:Create()
 	f.Status:SetPoint("TOP", f.Subtitle, "BOTTOM", 0, -2)
 	f.Status:SetWidth(WIDTH - 220)
 	if theme then
-		-- Under the title band, reading from the left, like Polestar's titles.
+		-- Under the title band, reading from the left like Polestar's titles, and
+		-- one size down so both lines clear the content that starts below.
+		f.Subtitle:SetFontObject("GameFontHighlight")
 		f.Subtitle:ClearAllPoints()
-		f.Subtitle:SetPoint("TOPLEFT", 16, -(BAND_H + 10))
+		f.Subtitle:SetPoint("TOPLEFT", 14, -(BAND_H + 8))
 		f.Subtitle:SetJustifyH("LEFT")
 		f.Status:ClearAllPoints()
-		f.Status:SetPoint("TOPLEFT", f.Subtitle, "BOTTOMLEFT", 0, -2)
+		f.Status:SetPoint("TOPLEFT", f.Subtitle, "BOTTOMLEFT", 0, -1)
 		f.Status:SetJustifyH("LEFT")
 	end
 	-- The centered texts are sized for the default window; keep up with a resize.
@@ -210,6 +212,11 @@ function M:Create()
 	f.SidebarToggle = UI.IconButton(f, "common-icon-backarrow", 24, "Hide the thread list", function() M:ToggleSidebar() end)
 	if not f.SidebarToggle.Icon:GetAtlas() then f.SidebarToggle.Icon:SetAtlas("common-dropdown-icon-back") end
 	f.SidebarToggle:SetPoint("TOPRIGHT", -10, -32)
+	if theme then
+		-- In the modern band, beside the close.
+		f.SidebarToggle:ClearAllPoints()
+		f.SidebarToggle:SetPoint("TOPRIGHT", -32, -5)
+	end
 
 	-- Shown when the session's live updates are running low: a reload frees them.
 	f.RefreshSlots = UI.Button(f, "Refresh live updates", 170, function() ReloadUI() end)
@@ -398,7 +405,7 @@ function M:CreateThreadsPage(page)
 	self:SetPlaceholder("Message the agent  (Shift+Enter for a new line)")
 
 	local counter = UI.Text(composer, "GameFontDisableSmall", "RIGHT")
-	counter:SetPoint("BOTTOMRIGHT", -8, 5)
+	counter:SetPoint("BOTTOMRIGHT", theme and -12 or -8, 6)
 	right.Counter = counter
 
 	local hint = UI.Text(composer, "GameFontDisableSmall", "LEFT")
@@ -411,6 +418,9 @@ end
 
 function M:CreateButtonBar(f)
 	local bar = {}
+	-- The modern icon buttons are flat squares edge to edge; give them a little
+	-- more air than the game's own padded art needs.
+	local gap = Theme.Get() and 9 or 6
 	bar.Refresh = UI.Button(f, "Refresh", 110, function()
 		ns.Transport:Send("ping")
 		PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
@@ -433,7 +443,7 @@ function M:CreateButtonBar(f)
 	bar.Stop:SetPoint("LEFT", bar.Back, "RIGHT", 18, 0)
 
 	bar.Mic = UI.IconButton(f, "voicechat-icon-mic", 26, "Dictate", function() M:ToggleDictation() end)
-	bar.Mic:SetPoint("LEFT", bar.Stop, "RIGHT", 6, 0)
+	bar.Mic:SetPoint("LEFT", bar.Stop, "RIGHT", gap, 0)
 	UI.Tooltip(bar.Mic, nil, function()
 		local b = ns.Store.data.bridge or {}
 		if b.dictationHint then return b.dictationHint end
@@ -451,10 +461,10 @@ function M:CreateButtonBar(f)
 		end
 		if last then ns.Speak(last.t, ns.viewId, last.n) end
 	end)
-	bar.Speak:SetPoint("LEFT", bar.Mic, "RIGHT", 6, 0)
+	bar.Speak:SetPoint("LEFT", bar.Mic, "RIGHT", gap, 0)
 
 	bar.Shot = UI.IconButton(f, "Interface\\Icons\\INV_Misc_Spyglass_03", 26, nil, nil)
-	bar.Shot:SetPoint("LEFT", bar.Speak, "RIGHT", 6, 0)
+	bar.Shot:SetPoint("LEFT", bar.Speak, "RIGHT", gap, 0)
 	bar.Shot:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	bar.Shot:SetScript("OnClick", function(_, button)
 		if button == "RightButton" then M:RemoveScreenshots() else M:AttachScreenshot() end
@@ -465,7 +475,7 @@ function M:CreateButtonBar(f)
 	-- The "/" and "$" suggestions as a list, for a controller, which can't type them.
 	-- It opens the shared list, so it carries what the list reads from its owner.
 	bar.Insert = UI.IconButton(f, "Interface\\Icons\\INV_Misc_Book_09", 26, nil, function(self) M:OpenCommandList(self) end)
-	bar.Insert:SetPoint("LEFT", bar.Shot, "RIGHT", 6, 0)
+	bar.Insert:SetPoint("LEFT", bar.Shot, "RIGHT", gap, 0)
 	bar.Insert.options = {}
 	bar.Insert.listWidth = 360
 	bar.Insert.listAbove = true

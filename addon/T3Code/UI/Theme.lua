@@ -10,7 +10,8 @@ local _, ns = ...
 local Theme = {}
 ns.Theme = Theme
 
--- Polestar's Dusk neutrals with T3 Code's own gold.
+-- Polestar's Dusk neutrals with Polestar's own honey gold, which sits quieter on
+-- the dark ground than the game's saturated yellow.
 Theme.MODERN = {
 	windowBg = { 0.039, 0.051, 0.086, 1.00 }, -- #0a0d16 the window's ground
 	panel =    { 0.110, 0.133, 0.204, 1.00 }, -- #1c2234 insets, the composer
@@ -19,8 +20,8 @@ Theme.MODERN = {
 	hairline = { 1.000, 1.000, 1.000, 0.10 }, -- borders and rules
 	hover =    { 1.000, 1.000, 1.000, 0.07 }, -- a row under the mouse
 	selected = { 1.000, 1.000, 1.000, 0.12 }, -- the chosen row
-	accent =   { 1.000, 0.820, 0.000, 1.00 }, -- #ffd100 T3 Code's gold
-	onAccent = { 0.060, 0.050, 0.000, 1.00 }, -- text on a gold fill
+	accent =   { 0.902, 0.729, 0.400, 1.00 }, -- #e6ba66 Polestar's gold
+	onAccent = { 0.039, 0.051, 0.086, 1.00 }, -- the ground, on a gold fill
 	track =    { 0.000, 0.000, 0.000, 0.40 }, -- the empty part of a progress bar
 }
 

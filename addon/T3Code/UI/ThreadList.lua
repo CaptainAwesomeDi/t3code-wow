@@ -24,6 +24,19 @@ local DOT_COLORS = {
 	unread = { 0.29, 0.62, 1 },
 }
 
+-- A row's title has the status words beside it; with wrapping off, text wider
+-- than the box is drawn anyway, under those words. Cut it to fit instead.
+local function TrimTo(fs, text, maxW)
+	fs:SetText(text)
+	if (fs:GetStringWidth() or 0) <= maxW or maxW <= 0 then return text end
+	while #text > 1 do
+		text = string.sub(text, 1, #text - 1)
+		fs:SetText(text .. "…")
+		if (fs:GetStringWidth() or 0) <= maxW then break end
+	end
+	return text .. "…"
+end
+
 local function InitHeader(button, ed)
 	UI.InitGroupHeader(button)
 	UI.SetGroupHeader(button, ed.label, ed.count, ed.collapsed)
@@ -140,6 +153,8 @@ local function InitRow(button, ed)
 	button.Sub:ClearAllPoints()
 	button.Sub:SetPoint("BOTTOMLEFT", 18 + indent, 8)
 	button.Title:SetText(t.title)
+	local rowW = button:GetWidth() or 0
+	TrimTo(button.Title, t.title, rowW - 18 - indent - 78)
 	if t.s == "settled" or t.s == "snoozed" then
 		button.Title:SetTextColor(0.75, 0.75, 0.75)
 	else
@@ -155,7 +170,7 @@ local function InitRow(button, ed)
 		sub = "from " .. (parent and parent.title or "another thread")
 	end
 	if t.s == "working" or t.s == "input" or t.s == "waiting" then sub = t.l or sub end
-	button.Sub:SetText(sub)
+	TrimTo(button.Sub, sub, rowW - 18 - indent - 64)
 	if (t.s == "working" or t.s == "waiting") and t.st then
 		button.Age:SetText(ns.Duration(time() - t.st))
 	elseif t.s == "snoozed" then

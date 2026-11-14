@@ -257,11 +257,15 @@ local function EnsureList()
 			row.Text:SetWordWrap(false)
 		end
 		if ed.header then
-			-- A group title: gold, flush left, not a choice.
+			-- A group title: gold in the game's look, quiet grey in the modern one.
 			if row.Check then row.Check:Hide() end
 			row.Text:SetPoint("LEFT", 6, 0)
 			row.Text:SetText(ed.label)
-			row.Text:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
+			if theme then
+				row.Text:SetTextColor(0.65, 0.68, 0.75)
+			else
+				row.Text:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
+			end
 			row:EnableMouse(false)
 			row:SetScript("OnClick", nil)
 			return
@@ -272,7 +276,15 @@ local function EnsureList()
 		if row.Check then row.Check:SetShown(selected) end
 		if row.Bar then row.Bar:SetShown(selected) end
 		row.Text:SetText(ed.label)
-		if selected then row.Text:SetTextColor(NORMAL_FONT_COLOR:GetRGB()) else row.Text:SetTextColor(1, 1, 1) end
+		if selected then
+			if theme then
+				row.Text:SetTextColor(theme.accent[1], theme.accent[2], theme.accent[3])
+			else
+				row.Text:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
+			end
+		else
+			row.Text:SetTextColor(1, 1, 1)
+		end
 		row:SetScript("OnClick", function() UI.PickFromList(ed.value) end)
 	end)
 	ScrollUtil.InitScrollBoxListWithScrollBar(box, bar, view)
