@@ -1,6 +1,8 @@
--- Small builders over Blizzard's own templates so everything matches the game UI.
+-- Small builders over Blizzard's own templates so everything matches the game UI,
+-- or, under the modern design, over flat layers from the theme palette.
 
 local _, ns = ...
+local Theme = ns.Theme
 
 local UI = {}
 ns.UI = UI
@@ -21,7 +23,32 @@ function UI.Tooltip(owner, title, body)
 	end)
 end
 
-function UI.Button(parent, text, width, onClick)
+function UI.Button(parent, text, width, onClick, primary)
+	local theme = Theme.Get()
+	if theme then
+		local b = CreateFrame("Button", nil, parent)
+		b:SetSize(width or 110, 24)
+		local bg = Theme.Solid(b, primary and theme.accent or theme.panelAlt)
+		bg:SetAllPoints()
+		Theme.Edges(b, theme.hairline)
+		local fs = b:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+		b:SetFontString(fs)
+		b:SetText(text)
+		local r, g, bl = 1, 1, 1
+		if primary then r, g, bl = theme.onAccent[1], theme.onAccent[2], theme.onAccent[3] end
+		fs:SetTextColor(r, g, bl)
+		-- A disabled button says so in its label, dimmed like the game's own.
+		b:SetScript("OnDisable", function() fs:SetTextColor(0.5, 0.5, 0.5) end)
+		b:SetScript("OnEnable", function() fs:SetTextColor(r, g, bl) end)
+		if not b:IsEnabled() then fs:SetTextColor(0.5, 0.5, 0.5) end
+		local hl = Theme.Solid(b, theme.hover, "HIGHLIGHT")
+		hl:SetAllPoints()
+		-- A press nudges the label down a pixel, as Polestar's buttons do.
+		b:SetScript("OnMouseDown", function(self) if self:IsEnabled() then fs:AdjustPointsOffset(0, -1) end end)
+		b:SetScript("OnMouseUp", function(self) if self:IsEnabled() then fs:AdjustPointsOffset(0, 1) end end)
+		if onClick then b:SetScript("OnClick", onClick) end
+		return b
+	end
 	local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
 	b:SetSize(width or 110, 22)
 	b:SetText(text)
@@ -37,10 +64,15 @@ function UI.IconButton(parent, icon, size, tooltip, onClick)
 	-- motion scripts on disabled buttons unless asked to keep them.
 	b:SetMotionScriptsWhileDisabled(true)
 	local bg = b:CreateTexture(nil, "BACKGROUND")
-	bg:SetAtlas("common-button-square-gray-up")
-	if not bg:GetAtlas() then
-		bg:SetTexture("Interface\\Buttons\\UI-Quickslot2")
-		bg:SetTexCoord(0.18, 0.82, 0.18, 0.82)
+	local theme = Theme.Get()
+	if theme then
+		Theme.Paint(bg, theme.panelAlt)
+	else
+		bg:SetAtlas("common-button-square-gray-up")
+		if not bg:GetAtlas() then
+			bg:SetTexture("Interface\\Buttons\\UI-Quickslot2")
+			bg:SetTexCoord(0.18, 0.82, 0.18, 0.82)
+		end
 	end
 	bg:SetAllPoints()
 	b.Background = bg
@@ -49,7 +81,12 @@ function UI.IconButton(parent, icon, size, tooltip, onClick)
 	tex:SetSize((size or 28) - 10, (size or 28) - 10)
 	if C_Texture.GetAtlasInfo(icon) then tex:SetAtlas(icon) else tex:SetTexture(icon) end
 	b.Icon = tex
-	b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+	if theme then
+		local hl = Theme.Solid(b, theme.hover, "HIGHLIGHT")
+		hl:SetAllPoints()
+	else
+		b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+	end
 	b:SetScript("OnMouseDown", function(self) if self:IsEnabled() then self.Icon:AdjustPointsOffset(1, -1) end end)
 	b:SetScript("OnMouseUp", function(self) if self:IsEnabled() then self.Icon:AdjustPointsOffset(-1, 1) end end)
 	if tooltip then UI.Tooltip(b, tooltip) end
@@ -65,10 +102,15 @@ function UI.Cycler(parent, width, onChange)
 	local b = CreateFrame("Button", nil, parent)
 	b:SetSize(width or 220, 26)
 	b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	local theme = Theme.Get()
 	local bg = b:CreateTexture(nil, "BACKGROUND")
-	bg:SetAtlas("common-dropdown-textholder")
+	if theme then
+		Theme.Paint(bg, theme.panelAlt)
+	else
+		bg:SetAtlas("common-dropdown-textholder")
+	end
 	bg:SetAllPoints()
-	if not bg:GetAtlas() then
+	if not theme and not bg:GetAtlas() then
 		bg:SetColorTexture(0, 0, 0, 0.6)
 	end
 	local arrow = b:CreateTexture(nil, "ARTWORK")
@@ -77,10 +119,14 @@ function UI.Cycler(parent, width, onChange)
 	arrow:SetPoint("RIGHT", -3, 0)
 	b.Arrow = arrow
 	local hl = b:CreateTexture(nil, "HIGHLIGHT")
-	hl:SetAtlas("common-dropdown-textholder")
+	if theme then
+		Theme.Paint(hl, theme.hover)
+	else
+		hl:SetAtlas("common-dropdown-textholder")
+		hl:SetBlendMode("ADD")
+		hl:SetAlpha(0.25)
+	end
 	hl:SetAllPoints()
-	hl:SetBlendMode("ADD")
-	hl:SetAlpha(0.25)
 	local text = b:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 	text:SetPoint("LEFT", 10, 0)
 	text:SetPoint("RIGHT", arrow, "LEFT", -4, 0)
@@ -134,6 +180,7 @@ end
 -- without "blocked action" errors.
 
 local list -- one shared popup
+local listed -- UISpecialFrames only wants the name once, across rebuilds
 
 local ROW_H = 22
 local MAX_ROWS = 14
@@ -146,12 +193,19 @@ local function EnsureList()
 	list:EnableMouse(true)
 	list:SetClampedToScreen(true)
 	list:Hide()
+	local theme = Theme.Get()
 	local bg = list:CreateTexture(nil, "BACKGROUND")
-	bg:SetAtlas("common-dropdown-bg")
-	bg:SetPoint("TOPLEFT", -10, 3)
-	bg:SetPoint("BOTTOMRIGHT", 10, -3)
-	bg:SetAlpha(0.95)
-	if not bg:GetAtlas() then bg:SetColorTexture(0.05, 0.05, 0.05, 0.95) end
+	if theme then
+		Theme.Paint(bg, theme.overlay)
+		bg:SetAllPoints()
+		Theme.Edges(list, theme.hairline)
+	else
+		bg:SetAtlas("common-dropdown-bg")
+		bg:SetPoint("TOPLEFT", -10, 3)
+		bg:SetPoint("BOTTOMRIGHT", 10, -3)
+		bg:SetAlpha(0.95)
+		if not bg:GetAtlas() then bg:SetColorTexture(0.05, 0.05, 0.05, 0.95) end
+	end
 
 	local search = CreateFrame("EditBox", nil, list, "SearchBoxTemplate")
 	search:SetHeight(20)
@@ -175,22 +229,36 @@ local function EnsureList()
 		if not row.Text then
 			row:SetHeight(ROW_H)
 			local hl = row:CreateTexture(nil, "HIGHLIGHT")
-			hl:SetAtlas("Options_List_Hover")
+			if theme then
+				Theme.Paint(hl, theme.hover)
+			else
+				hl:SetAtlas("Options_List_Hover")
+				hl:SetAlpha(0.6)
+			end
 			hl:SetAllPoints()
-			hl:SetAlpha(0.6)
-			row.Check = row:CreateTexture(nil, "ARTWORK")
-			row.Check:SetAtlas("common-icon-checkmark")
-			row.Check:SetSize(14, 14)
-			row.Check:SetPoint("LEFT", 4, 0)
+			if theme then
+				-- The chosen row carries a gold bar down its left edge.
+				row.Bar = row:CreateTexture(nil, "ARTWORK")
+				Theme.Paint(row.Bar, theme.accent)
+				row.Bar:SetWidth(2)
+				row.Bar:SetPoint("TOPLEFT")
+				row.Bar:SetPoint("BOTTOMLEFT")
+				row.Bar:Hide()
+			else
+				row.Check = row:CreateTexture(nil, "ARTWORK")
+				row.Check:SetAtlas("common-icon-checkmark")
+				row.Check:SetSize(14, 14)
+				row.Check:SetPoint("LEFT", 4, 0)
+			end
 			row.Text = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-			row.Text:SetPoint("LEFT", 22, 0)
+			row.Text:SetPoint("LEFT", theme and 10 or 22, 0)
 			row.Text:SetPoint("RIGHT", -4, 0)
 			row.Text:SetJustifyH("LEFT")
 			row.Text:SetWordWrap(false)
 		end
 		if ed.header then
 			-- A group title: gold, flush left, not a choice.
-			row.Check:Hide()
+			if row.Check then row.Check:Hide() end
 			row.Text:SetPoint("LEFT", 6, 0)
 			row.Text:SetText(ed.label)
 			row.Text:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
@@ -199,9 +267,10 @@ local function EnsureList()
 			return
 		end
 		row:EnableMouse(true)
-		row.Text:SetPoint("LEFT", 22, 0)
+		row.Text:SetPoint("LEFT", theme and 10 or 22, 0)
 		local selected = list.owner and list.owner.value == ed.value
-		row.Check:SetShown(selected)
+		if row.Check then row.Check:SetShown(selected) end
+		if row.Bar then row.Bar:SetShown(selected) end
 		row.Text:SetText(ed.label)
 		if selected then row.Text:SetTextColor(NORMAL_FONT_COLOR:GetRGB()) else row.Text:SetTextColor(1, 1, 1) end
 		row:SetScript("OnClick", function() UI.PickFromList(ed.value) end)
@@ -209,7 +278,10 @@ local function EnsureList()
 	ScrollUtil.InitScrollBoxListWithScrollBar(box, bar, view)
 	list.Box, list.Bar = box, bar
 
-	tinsert(UISpecialFrames, "T3CodeDropdownList")
+	if not listed then
+		tinsert(UISpecialFrames, "T3CodeDropdownList")
+		listed = true
+	end
 	-- Close on a click anywhere else.
 	list:SetScript("OnUpdate", function(self)
 		if (IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton"))
@@ -309,6 +381,13 @@ function UI.ListOpen()
 	return list and list:IsShown() and list or nil
 end
 
+-- Drop the shared popup so the next open builds it under the current design.
+function UI.ResetList()
+	if not list then return end
+	list:Hide()
+	list = nil
+end
+
 function UI.Dropdown(parent, width, onChange)
 	local b = UI.Cycler(parent, width, onChange)
 	b.onChange = onChange
@@ -319,6 +398,14 @@ function UI.Dropdown(parent, width, onChange)
 end
 
 function UI.Inset(parent)
+	local theme = Theme.Get()
+	if theme then
+		local f = CreateFrame("Frame", nil, parent)
+		local bg = Theme.Solid(f, theme.panel)
+		bg:SetAllPoints()
+		Theme.Edges(f, theme.hairline)
+		return f
+	end
 	local f = CreateFrame("Frame", nil, parent, "InsetFrameTemplate")
 	return f
 end
@@ -334,14 +421,27 @@ function UI.InitGroupHeader(button)
 	if button.created then return end
 	button.created = true
 	button:SetHeight(26)
-	local bg = button:CreateTexture(nil, "BACKGROUND")
-	bg:SetAtlas("common-button-list-collapseExpand")
-	bg:SetAllPoints()
+	local theme = Theme.Get()
+	if theme then
+		-- No plate: just a hairline under the group's rows.
+		local rule = Theme.Solid(button, theme.hairline)
+		rule:SetHeight(1)
+		rule:SetPoint("BOTTOMLEFT", 4, 2)
+		rule:SetPoint("BOTTOMRIGHT", -4, 2)
+	else
+		local bg = button:CreateTexture(nil, "BACKGROUND")
+		bg:SetAtlas("common-button-list-collapseExpand")
+		bg:SetAllPoints()
+	end
 	local hl = button:CreateTexture(nil, "HIGHLIGHT")
-	hl:SetAtlas("common-button-list-collapseExpand")
+	if theme then
+		Theme.Paint(hl, theme.hover)
+	else
+		hl:SetAtlas("common-button-list-collapseExpand")
+		hl:SetBlendMode("ADD")
+		hl:SetAlpha(0.35)
+	end
 	hl:SetAllPoints()
-	hl:SetBlendMode("ADD")
-	hl:SetAlpha(0.35)
 	local icon = button:CreateTexture(nil, "ARTWORK")
 	icon:SetPoint("LEFT", 10, 0)
 	button.Icon = icon
@@ -357,19 +457,28 @@ function UI.SetGroupHeader(button, label, count, collapsed)
 end
 
 function UI.ProgressBar(parent)
-	local holder = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-	holder:SetBackdrop({
-		bgFile = "Interface\\Buttons\\WHITE8X8",
-		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-		edgeSize = 12,
-		insets = { left = 3, right = 3, top = 3, bottom = 3 },
-	})
-	holder:SetBackdropColor(0, 0, 0, 0.75)
-	holder:SetBackdropBorderColor(0.75, 0.6, 0.3, 1)
+	local theme = Theme.Get()
+	local holder
+	if theme then
+		holder = CreateFrame("Frame", nil, parent)
+		local bg = Theme.Solid(holder, theme.track)
+		bg:SetAllPoints()
+		Theme.Edges(holder, theme.hairline)
+	else
+		holder = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+		holder:SetBackdrop({
+			bgFile = "Interface\\Buttons\\WHITE8X8",
+			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+			edgeSize = 12,
+			insets = { left = 3, right = 3, top = 3, bottom = 3 },
+		})
+		holder:SetBackdropColor(0, 0, 0, 0.75)
+		holder:SetBackdropBorderColor(0.75, 0.6, 0.3, 1)
+	end
 	local bar = CreateFrame("StatusBar", nil, holder)
 	bar:SetPoint("TOPLEFT", 4, -4)
 	bar:SetPoint("BOTTOMRIGHT", -4, 4)
-	bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+	bar:SetStatusBarTexture(theme and "Interface\\Buttons\\WHITE8X8" or "Interface\\TargetingFrame\\UI-StatusBar")
 	bar:SetStatusBarColor(0.1, 0.7, 0.15)
 	bar:SetMinMaxValues(0, 100)
 	local text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")

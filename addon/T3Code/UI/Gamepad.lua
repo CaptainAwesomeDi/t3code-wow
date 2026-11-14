@@ -131,6 +131,14 @@ local function EnsurePointer(f)
 	glow:Hide()
 end
 
+-- The pointer and its glow hang off the window; a rebuilt window needs new ones.
+function G:ResetCursor()
+	if pointer then pointer:Hide() end
+	if glow then glow:Hide() end
+	pointer, glow = nil, nil
+	self.selected, self.selectedKey = nil, nil
+end
+
 -- What a list row shows (rows are recycled, so remember content, not the frame).
 local function RowKey(ed)
 	if not ed then return nil end

@@ -74,6 +74,21 @@ function S:Create(page)
 	test:SetPoint("LEFT", dd, "RIGHT", 10, 0)
 	y = y - 40
 
+	local designLabel = UI.Text(page, "GameFontHighlight")
+	designLabel:SetPoint("TOPLEFT", 22, y - 12)
+	designLabel:SetText("Design")
+	local design = UI.Dropdown(page, 240, function(value)
+		ns.db.settings.theme = value
+		ns.Main:ApplyTheme()
+	end)
+	design:SetPoint("LEFT", designLabel, "RIGHT", 16, 0)
+	design:SetOptions({
+		{ value = "classic", label = "Classic (the game's own look)" },
+		{ value = "modern", label = "Modern (flat, dark, gold accent)" },
+	}, ns.db.settings.theme or "classic")
+	self.design = design
+	y = y - 40
+
 	local sizeLabel = UI.Text(page, "GameFontHighlight")
 	sizeLabel:SetPoint("TOPLEFT", 22, y - 12)
 	sizeLabel:SetText("Window size")
@@ -114,7 +129,13 @@ function S:Create(page)
 	local report = UI.Button(page, "Report a problem", 150, function() ns.Main:ShowPage("threads") ns.Main:Report() end)
 	report:SetPoint("LEFT", selftest, "RIGHT", 10, 0)
 	UI.Tooltip(report, "Report a problem", "Puts diagnostics in the message box and attaches a screenshot, for the thread you have open (or a new one).")
-	self.controls = { dd, size, test, reload, resetTracker, selftest, report }
+	self.controls = { dd, size, design, test, reload, resetTracker, selftest, report }
+end
+
+-- Drop the page's controls: the window is being rebuilt under another design.
+function S:Teardown()
+	self.page, self.checks, self.controls = nil, nil, nil
+	self.voice, self.size, self.design, self.info = nil, nil, nil, nil
 end
 
 local SIGNAL_TEXT = {
@@ -132,6 +153,8 @@ function S:Refresh()
 	self.voice:Update()
 	self.size.value = ns.db.settings.windowScale or "auto"
 	self.size:Update()
+	self.design.value = ns.db.settings.theme or "classic"
+	self.design:Update()
 	local T = ns.Transport
 	local b = ns.Store.data.bridge or {}
 	local lines = {

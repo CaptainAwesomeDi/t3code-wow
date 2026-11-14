@@ -127,9 +127,14 @@ local function InitOption(button, ed)
 		button.Label:SetJustifyH("LEFT")
 		button.Label:SetWordWrap(false)
 		local hl = button:CreateTexture(nil, "HIGHLIGHT")
-		hl:SetAtlas("Options_List_Hover")
+		local theme = ns.Theme.Get()
+		if theme then
+			ns.Theme.Paint(hl, theme.hover)
+		else
+			hl:SetAtlas("Options_List_Hover")
+			hl:SetAlpha(0.5)
+		end
 		hl:SetAllPoints()
-		hl:SetAlpha(0.5)
 		button:SetScript("OnEnter", function(self)
 			if not self.desc or self.desc == "" then return end
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -140,9 +145,21 @@ local function InitOption(button, ed)
 		button:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	end
 	button.desc = ed.desc
+	local theme = ns.Theme.Get()
 	if ed.checked ~= nil then
-		button.Bullet:SetTexture(ed.checked and "Interface\\Buttons\\UI-CheckBox-Check" or "Interface\\Buttons\\UI-CheckBox-Up")
-		button.Bullet:SetSize(16, 16)
+		if theme then
+			-- A flat square: gold when checked, grey when not.
+			button.Bullet:SetTexture("Interface\\Buttons\\WHITE8X8")
+			if ed.checked then
+				ns.Theme.Paint(button.Bullet, theme.accent)
+			else
+				button.Bullet:SetVertexColor(0.45, 0.45, 0.45)
+			end
+			button.Bullet:SetSize(10, 10)
+		else
+			button.Bullet:SetTexture(ed.checked and "Interface\\Buttons\\UI-CheckBox-Check" or "Interface\\Buttons\\UI-CheckBox-Up")
+			button.Bullet:SetSize(16, 16)
+		end
 	else
 		button.Bullet:SetTexture("Interface\\Buttons\\WHITE8X8")
 		button.Bullet:SetVertexColor(0.9, 0.9, 0.9)
@@ -182,6 +199,13 @@ function T:Create(parent, header, composer)
 	self.scrollBox, self.scrollBar, self.view = scrollBox, scrollBar, view
 
 	scrollBox:SetScript("OnSizeChanged", function() T:Relayout() end)
+end
+
+-- Drop the conversation's frames: the window is being rebuilt under another design.
+function T:Teardown()
+	self.inset, self.header, self.top = nil, nil, nil
+	self.scrollBox, self.scrollBar, self.view = nil, nil, nil
+	self.key, self.dp = nil, nil
 end
 
 -- What the conversation hangs under: the header, or the family bar while it's shown.

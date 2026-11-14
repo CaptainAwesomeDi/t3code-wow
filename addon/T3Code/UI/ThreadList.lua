@@ -39,13 +39,29 @@ local function CreateRow(button)
 	button:SetHeight(46)
 	button:RegisterForClicks("LeftButtonUp")
 
+	local theme = ns.Theme.Get()
 	local hover = button:CreateTexture(nil, "HIGHLIGHT")
-	hover:SetAtlas("Options_List_Hover")
+	if theme then
+		ns.Theme.Paint(hover, theme.hover)
+	else
+		hover:SetAtlas("Options_List_Hover")
+		hover:SetAlpha(0.5)
+	end
 	hover:SetAllPoints()
-	hover:SetAlpha(0.5)
 
 	local sel = button:CreateTexture(nil, "BACKGROUND")
-	sel:SetAtlas("PetList-ButtonSelect")
+	if theme then
+		-- The chosen thread: a quiet wash, with the accent down its left edge.
+		ns.Theme.Paint(sel, theme.selected)
+		local bar = button:CreateTexture(nil, "ARTWORK")
+		ns.Theme.Paint(bar, theme.accent)
+		bar:SetWidth(2)
+		bar:SetPoint("TOPLEFT", -2, 2)
+		bar:SetPoint("BOTTOMLEFT", -2, -2)
+		button.AccentBar = bar
+	else
+		sel:SetAtlas("PetList-ButtonSelect")
+	end
 	sel:SetPoint("TOPLEFT", -2, 2)
 	sel:SetPoint("BOTTOMRIGHT", 2, -2)
 	button.Selected = sel
@@ -112,7 +128,9 @@ local function InitRow(button, ed)
 	if not button.created then CreateRow(button) end
 	local t = ed.thread
 	button.thread = t
-	button.Selected:SetShown(t.id == ns.viewId and ns.Main.mode ~= "new")
+	local selected = t.id == ns.viewId and ns.Main.mode ~= "new"
+	button.Selected:SetShown(selected)
+	if button.AccentBar then button.AccentBar:SetShown(selected) end
 	-- A side chat indents under the thread it was forked from.
 	local indent = t.pt and 14 or 0
 	button.Dot:ClearAllPoints()
@@ -204,6 +222,11 @@ function L:Create(parent)
 	end)
 	ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
 	self.scrollBox, self.scrollBar, self.view = scrollBox, scrollBar, view
+end
+
+-- Drop the list's frames: the window is being rebuilt under another design.
+function L:Teardown()
+	self.dropdown, self.search, self.scrollBox, self.scrollBar, self.view, self.key = nil, nil, nil, nil, nil, nil
 end
 
 function L:SetupDropdown()

@@ -73,8 +73,13 @@ function F:Create(right, header)
 	bar:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", 0, -3)
 	bar:SetHeight(BAR_H)
 	bar:Hide()
+	local theme = ns.Theme.Get()
 	local line = bar:CreateTexture(nil, "ARTWORK")
-	line:SetColorTexture(0.45, 0.36, 0.2, 0.6)
+	if theme then
+		ns.Theme.Paint(line, theme.hairline)
+	else
+		line:SetColorTexture(0.45, 0.36, 0.2, 0.6)
+	end
 	line:SetHeight(1)
 	line:SetPoint("BOTTOMLEFT")
 	line:SetPoint("BOTTOMRIGHT")
@@ -85,9 +90,13 @@ function F:Create(right, header)
 	-- still says why.
 	up:SetMotionScriptsWhileDisabled(true)
 	local hl = up:CreateTexture(nil, "HIGHLIGHT")
-	hl:SetAtlas("Options_List_Hover")
+	if theme then
+		ns.Theme.Paint(hl, theme.hover)
+	else
+		hl:SetAtlas("Options_List_Hover")
+		hl:SetAlpha(0.5)
+	end
 	hl:SetAllPoints()
-	hl:SetAlpha(0.5)
 	up.Icon = up:CreateTexture(nil, "ARTWORK")
 	up.Icon:SetSize(14, 14)
 	up.Icon:SetPoint("LEFT", 4, 0)
@@ -122,6 +131,11 @@ function F:Create(right, header)
 	bar.Kids = kids
 
 	self.bar = bar
+end
+
+-- The bar hangs off the window; a rebuilt window needs a new one.
+function F:Teardown()
+	self.bar = nil
 end
 
 -- The status sits right after the title, so cut the title short enough to leave it room.

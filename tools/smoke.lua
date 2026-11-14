@@ -1270,6 +1270,51 @@ do
 	ns.Tracker:Refresh()
 end
 
+-- Design switch: the window rebuilds under the chosen design, keeping the open
+-- page, the draft and the selection.
+do
+	ns.Main:Open()
+	local rowThread
+	for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
+		if r.ed.thread then rowThread = r.ed.thread break end
+	end
+	if rowThread then ns.Main:SelectThread(rowThread.id) end
+	local old = ns.Main.frame
+	local page = ns.Main.page
+	ns.Main.composer:SetText("a draft survives the switch")
+	ns.db.settings.theme = "modern"
+	ns.Main:ApplyTheme()
+	local f = ns.Main.frame
+	check(f ~= old, "switching to modern rebuilds the window")
+	check(f:IsShown(), "the window stays open across the switch")
+	check(ns.Main.page == page, "the open page survives the switch")
+	check(ns.Main.composer:GetInputText() == "a draft survives the switch", "the draft survives the switch")
+	local ground, accent = ns.Theme.MODERN.windowBg, ns.Theme.MODERN.accent
+	check(f.ModernBg._color[1] == ground[1] and f.ModernBg._color[2] == ground[2] and f.ModernBg._color[3] == ground[3], "the modern ground is painted")
+	check(f.ModernRim._color[1] == accent[1] and f.ModernRim._color[2] == accent[2] and f.ModernRim._color[3] == accent[3], "the gold rim runs along the top edge")
+	check(f.NineSlice and f.NineSlice._shown == false, "the game's ornate border is hidden")
+	if rowThread then
+		local selected
+		for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
+			if r.ed.thread and r.ed.thread.id == ns.viewId then selected = r.frame end
+		end
+		check(selected and selected.AccentBar and selected.AccentBar._shown == true
+			and selected.AccentBar._color[1] == accent[1], "the selected thread carries the accent bar")
+		check(selected.Selected._atlas == nil and selected.Selected._color[1] == ns.Theme.MODERN.selected[1], "selection is a flat wash, not the game's art")
+	end
+	ns.db.settings.theme = "classic"
+	ns.Main:ApplyTheme()
+	local f3 = ns.Main.frame
+	check(f3 ~= f and not f3.ModernBg, "switching back rebuilds the classic window")
+	check(f3.NineSlice and f3.NineSlice._shown ~= false, "the game's ornate border is back")
+	check(f3:IsShown() and ns.Main.page == page, "still open on the same page after switching back")
+	ns.Main:ShowPage("settings")
+	check(ns.Settings.design.value == "classic", "the design dropdown follows the setting")
+	ns.Main:ShowPage("threads")
+	ns.Main:Refresh()
+	check(true, "the rebuilt window still refreshes")
+end
+
 -- Exhaustion
 Stub.now = Stub.now + 2
 ns.Transport.slotCursor = ns.Transport.slotCount + 1
