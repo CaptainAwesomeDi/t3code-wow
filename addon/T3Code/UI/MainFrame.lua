@@ -144,7 +144,8 @@ function M:Create()
 		f.ModernTitle = f:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
 		f.ModernTitle:SetPoint("TOPLEFT", 14, -7)
 		f.ModernTitle:SetText("T3 Code")
-		f.ModernTitle:SetTextColor(theme.accent[1], theme.accent[2], theme.accent[3])
+		-- White, like Polestar's wordmark. Gold stays on the rim and on what's selected.
+		Theme.SetText(f.ModernTitle, theme.text)
 		-- A quiet × in the band's corner, no button chrome.
 		local close = CreateFrame("Button", nil, f)
 		close:SetSize(24, 24)
@@ -1134,6 +1135,10 @@ function M:Refresh()
 	ns.ThreadList:Refresh()
 	ns.Family:Refresh()
 	ns.Transcript:Refresh()
+	-- The thread title belongs to the threads page. The other pages name themselves.
+	if Theme.Get() and self.page ~= "threads" then
+		f.Subtitle:SetText(self.page == "usage" and "Usage" or "Settings")
+	end
 end
 
 ---------------------------------------------------------------------------

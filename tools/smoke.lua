@@ -1245,7 +1245,26 @@ do
 	check(f.ModernClose and f.ModernClose.Text:GetText() == "×", "the modern close is a quiet ×")
 	check(f.CloseButton == nil or f.CloseButton._shown == false, "the template's close button is hidden in modern")
 	check(f.NineSlice and f.NineSlice._shown == false, "the game's ornate border is hidden")
-	check(ns.Settings.checks[1].Fill ~= nil, "modern checkboxes are flat wells")
+	check(ns.Settings.checks[1].Fill ~= nil and ns.Settings.checks[1].Sync ~= nil, "modern settings use a drawn switch")
+	local trackerOn = ns.db.settings.tracker
+	ns.Settings.checks[1]:SetChecked(true)
+	ns.Settings.checks[1]:Click()
+	check(ns.db.settings.tracker == false, "clicking a switch stores it")
+	ns.Settings.checks[1]:Click()
+	check(ns.db.settings.tracker == true, "clicking the switch again turns it back on")
+	ns.db.settings.tracker = trackerOn
+	check(ns.Settings.nav and #ns.Settings.nav == 6, "modern settings lists its sections")
+	check(ns.Settings.heading:GetText() == "Notices", "settings open on Notices")
+	for _, b in ipairs(ns.Settings.nav) do if b.id == "voice" then b:Click() end end
+	check(ns.Settings.heading:GetText() == "Voice", "a section opens its page")
+	ns.Settings.search:SetText("worktree")
+	ns.Settings.search:GetScript("OnTextChanged")(ns.Settings.search)
+	local shown = 0
+	for _, row in ipairs(ns.Settings.rows) do if row:IsShown() then shown = shown + 1 end end
+	check(ns.Settings.heading:GetText() == "Search" and shown == 1, "search shows only the matching setting")
+	ns.Settings.search:SetText("")
+	ns.Settings.section = "notices"
+	ns.Settings:Layout()
 	if rowThread then
 		local selected
 		for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do

@@ -1,9 +1,9 @@
 -- The two looks the window can wear. "classic" is Blizzard's own ornate templates,
 -- used exactly as the game draws them. "modern" is a flat, dark design drawn
--- entirely in code, after Polestar's design system (fitzforge/polestar): a dark
--- ground, hairline borders, square corners, and a single gold accent that marks
--- only what is selected or active. Every modern surface is a plain colored
--- texture, so no art ships and nothing depends on an atlas resolving.
+-- entirely in code, after Polestar (fitzforge/polestar): a dark ground, hairline
+-- borders, square corners, near-white titles, muted explanations, and a single
+-- gold accent that marks only what is selected or on. Every modern surface is a
+-- plain colored texture, so no art ships and nothing depends on an atlas resolving.
 
 local _, ns = ...
 
@@ -23,6 +23,10 @@ Theme.MODERN = {
 	accent =   { 0.902, 0.729, 0.400, 1.00 }, -- #e6ba66 Polestar's gold
 	onAccent = { 0.039, 0.051, 0.086, 1.00 }, -- the ground, on a gold fill
 	track =    { 0.000, 0.000, 0.000, 0.40 }, -- the empty part of a progress bar
+	text =     { 0.929, 0.937, 0.953, 1.00 }, -- titles and setting names
+	muted =    { 0.620, 0.663, 0.753, 1.00 }, -- the line under a title
+	knob =     { 0.965, 0.953, 0.910, 1.00 }, -- the thumb of a switch
+	switchOff = { 0.071, 0.086, 0.133, 1.00 }, -- the track of a switch that is off
 }
 
 -- The palette for the chosen design; nil means the game's own templates.
@@ -34,6 +38,12 @@ end
 function Theme.Paint(tex, token)
 	tex:SetColorTexture(token[1], token[2], token[3], token[4] or 1)
 	return tex
+end
+
+-- The same palette color on a font string.
+function Theme.SetText(fs, token)
+	fs:SetTextColor(token[1], token[2], token[3], token[4] or 1)
+	return fs
 end
 
 -- A flat colored layer; the caller anchors it.

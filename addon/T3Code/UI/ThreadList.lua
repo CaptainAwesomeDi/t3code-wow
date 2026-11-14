@@ -86,7 +86,9 @@ local function CreateRow(button)
 	dot:SetMask("Interface\\CharacterFrame\\TempPortraitAlphaMask")
 	button.Dot = dot
 
-	local title = button:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+	-- GameFontNormal is the game's gold. On the dark ground a thread title is white,
+	-- and gold is reserved for the selected row's bar.
+	local title = button:CreateFontString(nil, "ARTWORK", theme and "GameFontHighlight" or "GameFontNormal")
 	title:SetPoint("TOPLEFT", 18, -7)
 	title:SetPoint("RIGHT", -74, 0)
 	title:SetJustifyH("LEFT")
@@ -142,8 +144,11 @@ local function InitRow(button, ed)
 	button.Title:SetText(t.title)
 	local rowW = button:GetWidth() or 0
 	TrimTo(button.Title, t.title, rowW - 18 - indent - 78)
+	local theme = ns.Theme.Get()
 	if t.s == "settled" or t.s == "snoozed" then
-		button.Title:SetTextColor(0.75, 0.75, 0.75)
+		button.Title:SetTextColor(theme and theme.muted[1] or 0.75, theme and theme.muted[2] or 0.75, theme and theme.muted[3] or 0.75)
+	elseif theme then
+		button.Title:SetTextColor(theme.text[1], theme.text[2], theme.text[3])
 	else
 		button.Title:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
 	end
