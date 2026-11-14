@@ -3,6 +3,7 @@
 
 local _, ns = ...
 local UI = ns.UI
+local Theme = ns.Theme
 
 local M = {}
 ns.Main = M
@@ -21,15 +22,40 @@ M.BAR_KEYS = { "Refresh", "New", "Back", "Stop", "Mic", "Speak", "Shot", "Insert
 -- Frame
 
 local function CreateSideTab(f, index, icon, tooltip, page)
-	local tab = CreateFrame("Frame", nil, f, "LargeSideTabButtonTemplate")
-	tab.Icon:SetTexture(icon)
-	tab:SetFillToInterior(true, 40)
-	tab.tooltipText = tooltip
+	local theme = Theme.Get()
+	local tab
+	if theme then
+		-- A flat square; the active page's tab carries the accent down its left edge.
+		tab = CreateFrame("Button", nil, f)
+		tab:SetSize(40, 40)
+		local bg = Theme.Solid(tab, theme.panelAlt)
+		bg:SetAllPoints()
+		Theme.Edges(tab, theme.hairline)
+		local bar = Theme.Solid(tab, theme.accent, "ARTWORK")
+		bar:SetWidth(2)
+		bar:SetPoint("TOPLEFT")
+		bar:SetPoint("BOTTOMLEFT")
+		bar:Hide()
+		function tab:SetChecked(on) bar:SetShown(on and true or false) end
+		local hl = Theme.Solid(tab, theme.hover, "HIGHLIGHT")
+		hl:SetAllPoints()
+		tab.Icon = tab:CreateTexture(nil, "ARTWORK")
+		tab.Icon:SetSize(22, 22)
+		tab.Icon:SetPoint("CENTER")
+		tab.Icon:SetTexture(icon)
+		UI.Tooltip(tab, tooltip)
+		tab:SetScript("OnClick", function() M:ShowPage(page) end)
+	else
+		tab = CreateFrame("Frame", nil, f, "LargeSideTabButtonTemplate")
+		tab.Icon:SetTexture(icon)
+		tab:SetFillToInterior(true, 40)
+		tab.tooltipText = tooltip
+		tab:SetCustomOnMouseUpHandler(function(_, button, upInside)
+			if button == "LeftButton" and upInside then M:ShowPage(page) end
+		end)
+		tab:EnableMouse(true)
+	end
 	tab:SetPoint("TOPLEFT", f, "TOPRIGHT", 0, -36 - (index - 1) * 48)
-	tab:SetCustomOnMouseUpHandler(function(_, button, upInside)
-		if button == "LeftButton" and upInside then M:ShowPage(page) end
-	end)
-	tab:EnableMouse(true)
 	tab.page = page
 	return tab
 end
@@ -48,7 +74,34 @@ function M:Create()
 	f:Hide()
 	f:SetTitle("T3 Code")
 	f:SetPortraitToAsset(ns.media .. "portrait")
-	tinsert(UISpecialFrames, "T3CodeFrame")
+	-- The modern design hides the game's ornate frame and paints its own: a dark
+	-- ground, a hairline border, and the accent running along the top edge.
+	local theme = Theme.Get()
+	if theme then
+		for _, piece in ipairs({ f.NineSlice, f.Bg, f.PortraitContainer, f.Portrait, f.TitleContainer }) do
+			if piece then piece:Hide() end
+		end
+		if f.Inset and f.Inset.NineSlice then f.Inset.NineSlice:Hide() end
+		f.ModernBg = Theme.Solid(f, theme.windowBg)
+		f.ModernBg:SetAllPoints()
+		Theme.Edges(f, theme.hairline)
+		f.ModernRim = Theme.Solid(f, theme.accent, "ARTWORK")
+		f.ModernRim:SetHeight(2)
+		f.ModernRim:SetPoint("TOPLEFT")
+		f.ModernRim:SetPoint("TOPRIGHT")
+		if f.Inset then
+			f.ModernInset = Theme.Solid(f.Inset, theme.panel)
+			f.ModernInset:SetAllPoints()
+		end
+		f.ModernTitle = f:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+		f.ModernTitle:SetPoint("TOPLEFT", 16, -8)
+		f.ModernTitle:SetText("T3 Code")
+		f.ModernTitle:SetTextColor(theme.accent[1], theme.accent[2], theme.accent[3])
+	end
+	-- The name is what matters in UISpecialFrames, and it survives rebuilds.
+	local named
+	for _, n in ipairs(UISpecialFrames) do if n == "T3CodeFrame" then named = true end end
+	if not named then tinsert(UISpecialFrames, "T3CodeFrame") end
 
 	-- Drag by the title bar.
 	local drag = CreateFrame("Frame", nil, f)
@@ -141,10 +194,16 @@ function M:CreateThreadsPage(page)
 	page.Left = left
 
 	local divider = page:CreateTexture(nil, "ARTWORK")
-	divider:SetAtlas("UI-Frame-Divider-Vertical") -- harmless if missing
-	if not divider:GetAtlas() then
-		divider:SetColorTexture(0.45, 0.36, 0.2, 0.6)
-		divider:SetWidth(2)
+	local theme = Theme.Get()
+	if theme then
+		Theme.Paint(divider, theme.hairline)
+		divider:SetWidth(1)
+	else
+		divider:SetAtlas("UI-Frame-Divider-Vertical") -- harmless if missing
+		if not divider:GetAtlas() then
+			divider:SetColorTexture(0.45, 0.36, 0.2, 0.6)
+			divider:SetWidth(2)
+		end
 	end
 	divider:SetPoint("TOPLEFT", left, "TOPRIGHT", 0, -2)
 	divider:SetPoint("BOTTOMLEFT", left, "BOTTOMRIGHT", 0, 2)
@@ -163,7 +222,11 @@ function M:CreateThreadsPage(page)
 	header:SetPoint("TOPRIGHT", -4, -4)
 	header:SetHeight(30)
 	local hbg = header:CreateTexture(nil, "BACKGROUND")
-	hbg:SetAtlas("common-button-list-collapseExpand")
+	if theme then
+		Theme.Paint(hbg, theme.panelAlt)
+	else
+		hbg:SetAtlas("common-button-list-collapseExpand")
+	end
 	hbg:SetAllPoints()
 	header.Text = UI.Text(header, "GameFontHighlight", "CENTER")
 	header.Text:SetPoint("LEFT", 12, 0)
@@ -332,7 +395,7 @@ function M:CreateButtonBar(f)
 		return "The model this message goes to has no commands or skills."
 	end)
 
-	bar.Send = UI.Button(f, "Send", 110, function() M:Send() end)
+	bar.Send = UI.Button(f, "Send", 110, function() M:Send() end, true)
 	bar.Send:SetPoint("BOTTOMRIGHT", -6, 4)
 	f.Bar = bar
 end
@@ -495,16 +558,23 @@ function M:OpenCustomSnooze()
 		p:SetPoint("TOPRIGHT", header.Snooze, "BOTTOMRIGHT", 0, -2)
 		p:EnableMouse(true)
 		p:SetClampedToScreen(true)
+		local theme = Theme.Get()
 		local bg = p:CreateTexture(nil, "BACKGROUND")
-		bg:SetAtlas("common-dropdown-bg")
-		bg:SetPoint("TOPLEFT", -10, 3)
-		bg:SetPoint("BOTTOMRIGHT", 10, -3)
-		bg:SetAlpha(0.95)
-		if not bg:GetAtlas() then bg:SetColorTexture(0.05, 0.05, 0.05, 0.95) end
-		-- Solid behind the text: the transcript underneath would show through the art.
-		local solid = p:CreateTexture(nil, "BACKGROUND", nil, -1)
-		solid:SetAllPoints()
-		solid:SetColorTexture(0.03, 0.03, 0.03, 1)
+		if theme then
+			Theme.Paint(bg, theme.overlay)
+			bg:SetAllPoints()
+			Theme.Edges(p, theme.hairline)
+		else
+			bg:SetAtlas("common-dropdown-bg")
+			bg:SetPoint("TOPLEFT", -10, 3)
+			bg:SetPoint("BOTTOMRIGHT", 10, -3)
+			bg:SetAlpha(0.95)
+			if not bg:GetAtlas() then bg:SetColorTexture(0.05, 0.05, 0.05, 0.95) end
+			-- Solid behind the text: the transcript underneath would show through the art.
+			local solid = p:CreateTexture(nil, "BACKGROUND", nil, -1)
+			solid:SetAllPoints()
+			solid:SetColorTexture(0.03, 0.03, 0.03, 1)
+		end
 		p.Title = UI.Text(p, "GameFontNormal", "LEFT")
 		p.Title:SetPoint("TOPLEFT", 14, -12)
 		p.Title:SetText("Snooze until")
@@ -739,6 +809,31 @@ function M:ApplyScale()
 	local pref = ns.db.settings.windowScale or "auto"
 	local scale = SCALES[pref] or ((ns.Gamepad and ns.Gamepad:IsActive()) and 1.15 or 1)
 	self.frame:SetScale(scale)
+end
+
+-- Switching designs rebuilds the window: each frame's look is chosen when it is
+-- made, so a fresh window is simpler and safer than re-skinning frames built under
+-- the other design. The open page, the draft in the message box and the window's
+-- place on screen all survive.
+function M:ApplyTheme()
+	local shown = self.frame and self.frame:IsShown() or false
+	local page = self.page or "threads"
+	self:SaveDraft()
+	ns.Suggest:Teardown()
+	if self.frame then self.frame:Hide() end
+	self.frame, self.composer, self.placeholder, self.snoozePanel = nil, nil, nil, nil
+	ns.ThreadList:Teardown()
+	ns.Transcript:Teardown()
+	ns.Family:Teardown()
+	ns.Usage:Teardown()
+	ns.Settings:Teardown()
+	ns.Gamepad:ResetCursor()
+	UI.ResetList()
+	ns.Toasts:ApplyTheme()
+	self:Create()
+	self:LoadDraft()
+	self:ShowPage(page)
+	self.frame:SetShown(shown)
 end
 
 function M:ToggleDictation()

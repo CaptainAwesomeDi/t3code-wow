@@ -86,6 +86,12 @@ function S:Close()
 	return was
 end
 
+-- The popup hangs off the window; a rebuilt window needs a new one.
+function S:Teardown()
+	self:Close()
+	self.frame = nil
+end
+
 function S:Update()
 	local composer = Composer()
 	if not composer or not composer:IsVisible() or not composer:HasFocus() then return self:Close() end
@@ -194,16 +200,23 @@ function S:Frame()
 	f:SetPoint("BOTTOMLEFT", inset, "TOPLEFT", 0, 2)
 	f:SetPoint("BOTTOMRIGHT", inset, "TOPRIGHT", 0, 2)
 	f:Hide()
+	local theme = ns.Theme.Get()
 	local bg = f:CreateTexture(nil, "BACKGROUND")
-	bg:SetAtlas("common-dropdown-bg")
-	bg:SetPoint("TOPLEFT", -10, 3)
-	bg:SetPoint("BOTTOMRIGHT", 10, -3)
-	bg:SetAlpha(0.95)
-	if not bg:GetAtlas() then bg:SetColorTexture(0.05, 0.05, 0.05, 0.95) end
-	-- Solid behind the text: the transcript underneath would show through the art.
-	local solid = f:CreateTexture(nil, "BACKGROUND", nil, -1)
-	solid:SetAllPoints()
-	solid:SetColorTexture(0.03, 0.03, 0.03, 1)
+	if theme then
+		ns.Theme.Paint(bg, theme.overlay)
+		bg:SetAllPoints()
+		ns.Theme.Edges(f, theme.hairline)
+	else
+		bg:SetAtlas("common-dropdown-bg")
+		bg:SetPoint("TOPLEFT", -10, 3)
+		bg:SetPoint("BOTTOMRIGHT", 10, -3)
+		bg:SetAlpha(0.95)
+		if not bg:GetAtlas() then bg:SetColorTexture(0.05, 0.05, 0.05, 0.95) end
+		-- Solid behind the text: the transcript underneath would show through the art.
+		local solid = f:CreateTexture(nil, "BACKGROUND", nil, -1)
+		solid:SetAllPoints()
+		solid:SetColorTexture(0.03, 0.03, 0.03, 1)
+	end
 
 	f.Rows = {}
 	for i = 1, ROWS do
@@ -212,12 +225,20 @@ function S:Frame()
 		row:SetPoint("TOPLEFT", 6, -6 - (i - 1) * ROW_H)
 		row:SetPoint("TOPRIGHT", -10, -6 - (i - 1) * ROW_H)
 		local hl = row:CreateTexture(nil, "HIGHLIGHT")
-		hl:SetAtlas("Options_List_Hover")
+		if theme then
+			ns.Theme.Paint(hl, theme.hover)
+		else
+			hl:SetAtlas("Options_List_Hover")
+			hl:SetAlpha(0.6)
+		end
 		hl:SetAllPoints()
-		hl:SetAlpha(0.6)
 		row.Selected = row:CreateTexture(nil, "BACKGROUND")
-		row.Selected:SetAtlas("Options_List_Hover")
-		if not row.Selected:GetAtlas() then row.Selected:SetColorTexture(1, 1, 1, 0.15) end
+		if theme then
+			ns.Theme.Paint(row.Selected, theme.selected)
+		else
+			row.Selected:SetAtlas("Options_List_Hover")
+			if not row.Selected:GetAtlas() then row.Selected:SetColorTexture(1, 1, 1, 0.15) end
+		end
 		row.Selected:SetAllPoints()
 		row.Text = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 		row.Text:SetPoint("LEFT", 8, 0)

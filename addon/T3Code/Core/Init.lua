@@ -103,6 +103,7 @@ local DEFAULTS = {
 		quietInstances = true,
 		windowScale = "auto",
 		padChord = "auto",
+		theme = "classic", -- classic (the game's own look) | modern (flat, dark, gold accent)
 	},
 	drafts = {},
 	models = {}, -- project id -> the model last picked for new threads there

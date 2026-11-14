@@ -1,7 +1,9 @@
 -- Notices when a thread finishes or needs you: a small gold-bordered toast at the
--- top of the screen, a sound, a chat line, and optionally the reply read aloud.
+-- top of the screen (flat and dark under the modern design), a sound, a chat line,
+-- and optionally the reply read aloud.
 
 local _, ns = ...
+local Theme = ns.Theme
 
 local N = {}
 ns.Toasts = N
@@ -20,16 +22,37 @@ local function Sound(kind)
 	if id then PlaySound(id, "Master") end
 end
 
+-- The border treatment for the current design. The frames live in a pool, so a
+-- design switch re-styles the ones already made.
+local function StyleToast(f)
+	local theme = Theme.Get()
+	if theme then
+		f:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
+		f:SetBackdropColor(theme.overlay[1], theme.overlay[2], theme.overlay[3], 0.97)
+		if not f.Bar then
+			f.Bar = f:CreateTexture(nil, "ARTWORK")
+			f.Bar:SetWidth(3)
+			f.Bar:SetPoint("TOPLEFT")
+			f.Bar:SetPoint("BOTTOMLEFT")
+		end
+		Theme.Paint(f.Bar, theme.accent)
+		f.Bar:Show()
+	else
+		f:SetBackdrop({
+			bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
+			edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border",
+			tile = true, tileSize = 32, edgeSize = 24,
+			insets = { left = 6, right = 6, top = 6, bottom = 6 },
+		})
+		if f.Bar then f.Bar:Hide() end
+	end
+end
+
 local function CreateToast(i)
 	local f = CreateFrame("Button", nil, UIParent, "BackdropTemplate")
 	f:SetSize(WIDTH, 64)
 	f:SetFrameStrata("DIALOG")
-	f:SetBackdrop({
-		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
-		edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border",
-		tile = true, tileSize = 32, edgeSize = 24,
-		insets = { left = 6, right = 6, top = 6, bottom = 6 },
-	})
+	StyleToast(f)
 	f.Icon = f:CreateTexture(nil, "ARTWORK")
 	f.Icon:SetSize(40, 40)
 	f.Icon:SetPoint("TOPLEFT", 12, -12)
@@ -62,6 +85,11 @@ local function CreateToast(i)
 end
 
 N.frames = {}
+
+-- Restyle the pooled notices after a design switch.
+function N:ApplyTheme()
+	for _, f in ipairs(self.frames) do StyleToast(f) end
+end
 
 -- The newest notice still on screen, so a shortcut press can open its thread.
 function N:VisibleThread()
