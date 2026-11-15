@@ -902,6 +902,9 @@ test('ending a turn into waiting is not announced; the wait ending is', async ()
   assert.deepEqual(said, ['open']);
   b.onT3Change({ kind: 'thread', prev: running, thread: { ...running, id: 'kid', lineage: { parentThreadId: 'w' }, status: 'completed', activityRunStatus: null } });
   assert.deepEqual(said, ['open'], 'subagent threads are never announced');
+  const remote = { ...running, id: 'remote', delegatedFrom: { environmentId: 'e2', threadId: 'p', title: 'Parent' } };
+  b.onT3Change({ kind: 'thread', prev: remote, thread: { ...remote, status: 'completed', activityRunStatus: null } });
+  assert.deepEqual(said, ['open'], 'nor are tasks another machine delegated here');
 });
 
 test('running subagent threads are listed, idle ones are not', async () => {
@@ -919,6 +922,29 @@ test('running subagent threads are listed, idle ones are not', async () => {
   const ids = b.buildSnapshot().threads.map((t) => t.id);
   assert.ok(ids.includes('busy-kid'), 'a running subagent thread is listed');
   assert.ok(!ids.includes('idle-kid'), 'an idle one is not');
+});
+
+test('a task another machine delegated here is listed and counted like a subagent thread', async () => {
+  const { b } = fakeBridge();
+  const now = new Date().toISOString();
+  const delegatedFrom = { environmentId: 'e2', threadId: 'p', title: 'Parent' };
+  const busy = { id: 'busy-task', title: 'Busy', projectId: 'p1', status: 'running', activityRunStatus: 'running', delegatedFrom, updatedAt: now };
+  const idle = { id: 'idle-task', title: 'Idle', projectId: 'p1', status: 'completed', delegatedFrom, updatedAt: now };
+  // A thread an agent launched for the player stores delegatedFrom: null and is its own thread.
+  const handoff = { id: 'handoff', title: 'Handoff', projectId: 'p1', status: 'completed', delegatedFrom: null, updatedAt: now };
+  const statusCount = () => (b.writeStatus(), JSON.parse(fs.readFileSync(b.statusFile, 'utf8')).t3.threads);
+  const before = statusCount();
+  for (const t of [busy, idle, handoff]) b.t3.threads.set(t.id, t);
+  assert.equal(statusCount(), before + 1, 'the status file counts only the handoff');
+  const ids = b.buildSnapshot().threads.map((t) => t.id);
+  assert.ok(ids.includes('busy-task'), 'a running delegated task is listed');
+  assert.ok(!ids.includes('idle-task'), 'an idle one is not');
+  assert.ok(ids.includes('handoff'), 'a handoff thread is listed whatever its state');
+
+  const { Fleet } = await import('../src/fleet.js');
+  const fleet = new Fleet({ localTokens: async () => 'x' });
+  for (const t of [busy, idle, handoff]) fleet.local.client.threads.set(t.id, t);
+  assert.equal(fleet.environments()[0].threads, 1, 'only the handoff counts as a thread of this machine');
 });
 
 const at = (min) => new Date(Date.UTC(2026, 10, 1, 0, min)).toISOString();

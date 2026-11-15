@@ -65,6 +65,11 @@ export function waitingOn(t) {
   return t.blockedOnThreadWait && (t.activityRunStatus ?? t.status) === 'running' ? 'Waiting on another thread' : null;
 }
 
+// A thread another agent drives: a subagent, or a task another machine's thread delegated here.
+export function isDelegatedThread(t) {
+  return Boolean(t.lineage?.parentThreadId) || t.delegatedFrom != null;
+}
+
 export function isUnread(t) {
   const done = t.latestRunCompletedAt ? Date.parse(t.latestRunCompletedAt) : 0;
   const seen = t.lastVisitedAt ? Date.parse(t.lastVisitedAt) : 0;
@@ -82,7 +87,7 @@ export function pickModelSelection({ project, settings = {}, threads = [], provi
   }
   // Subagent threads run on whatever model their parent delegated to: not a choice.
   const latest = threads
-    .filter((t) => !t.deletedAt && !t.lineage?.parentThreadId && enabled(t.modelSelection))
+    .filter((t) => !t.deletedAt && !isDelegatedThread(t) && enabled(t.modelSelection))
     .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
   return (latest.find((t) => project && t.projectId === project.id) || latest[0])?.modelSelection || null;
 }
@@ -159,7 +164,7 @@ export function chosenModelSelection({ instanceId, model }, { providers, candida
     // the level this carries over.
     const active = (t) => Date.parse(t.activityRunStartedAt || t.latestRunStartedAt || t.updatedAt || t.createdAt || 0);
     const latest = threads
-      .filter((t) => !t.deletedAt && !t.lineage?.parentThreadId && same(t.modelSelection))
+      .filter((t) => !t.deletedAt && !isDelegatedThread(t) && same(t.modelSelection))
       .sort((a, b) => active(b) - active(a))[0];
     options = latest?.modelSelection.options;
   }
