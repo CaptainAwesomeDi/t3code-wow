@@ -33,7 +33,6 @@ local function ChooseClear(value)
 	if ns.db.settings.theme == "modern" then ns.Main:ApplyOpacity() end
 end
 
-local MODERN_NOTE = "Accent and transparency change the modern window only. The game's own frames ignore them."
 
 local CHECKS = {
 	{ section = "tracker", key = "tracker", label = "Show T3 Code in the tracker area", title = "Show in the tracker area", desc = "Lists what's running, what needs you, and what just finished.", after = function() ns.Tracker:Refresh() end },
@@ -56,7 +55,8 @@ local SECTIONS = {
 	{ id = "tracker", label = "Tracker", title = "Tracker", blurb = "The T3 Code section under your quests." },
 	{ id = "threads", label = "Threads", title = "Threads", blurb = "What a message does, and where a new thread starts." },
 	{ id = "voice", label = "Voice", title = "Voice", blurb = "Reading replies aloud, and dictation." },
-	{ id = "window", label = "Window", title = "Window", blurb = "Where the window shows up, which design it uses, and the modern window's own look." },
+	{ id = "window", label = "Window", title = "Window", blurb = "Where the window shows up, and which design it uses." },
+	{ id = "modern", label = "Modern", title = "Modern", blurb = "Accent and transparency for this flat window." },
 	{ id = "connection", label = "Connection", title = "Connection", blurb = "The link between the game and T3 Code." },
 }
 
@@ -157,37 +157,6 @@ function S:CreateClassic(page)
 		{ value = "xlarge", label = "Extra large" },
 	}, ns.db.settings.windowScale or "auto")
 	self.size = size
-	y = y - 44
-
-	local modernTitle = UI.Text(page, "GameFontNormal")
-	modernTitle:SetPoint("TOPLEFT", 22, y - 8)
-	modernTitle:SetText("Modern window")
-	local modernAbout = UI.Text(page, "GameFontDisableSmall")
-	modernAbout:SetPoint("TOPLEFT", modernTitle, "BOTTOMLEFT", 0, -2)
-	modernAbout:SetWidth(420)
-	modernAbout:SetJustifyH("LEFT")
-	modernAbout:SetText(MODERN_NOTE)
-	self.modernNote = { Title = modernTitle }
-	y = y - 48
-
-	local accentLabel = UI.Text(page, "GameFontHighlight")
-	accentLabel:SetPoint("TOPLEFT", 22, y - 12)
-	accentLabel:SetText("Accent")
-	local accent = UI.Dropdown(page, 240, ChooseAccent)
-	accent:SetPoint("LEFT", accentLabel, "RIGHT", 16, 0)
-	accent.tipBody = "Colors Start, the selected thread, and headings. Class color follows your class. The game's own frames ignore this."
-	accent:SetOptions(AccentChoices(), ns.db.settings.accent or "class")
-	self.accent = accent
-	y = y - 40
-
-	local clearLabel = UI.Text(page, "GameFontHighlight")
-	clearLabel:SetPoint("TOPLEFT", 22, y - 12)
-	clearLabel:SetText("Transparency")
-	local opacity = UI.Slider(page, 200, 0, 100, 5, ChooseClear, ClearText)
-	opacity:SetPoint("LEFT", clearLabel, "RIGHT", 16, 0)
-	opacity:SetValue(ns.db.settings.windowClear or 0, true)
-	UI.Tooltip(opacity, "Transparency", MODERN_NOTE)
-	self.opacity = opacity
 	y = y - 48
 
 	local infoTitle = UI.Text(page, "GameFontNormal")
@@ -213,7 +182,7 @@ function S:CreateClassic(page)
 	local report = UI.Button(page, "Report a problem", 150, function() ns.Main:ShowPage("threads") ns.Main:Report() end)
 	report:SetPoint("LEFT", selftest, "RIGHT", 10, 0)
 	UI.Tooltip(report, "Report a problem", "Puts diagnostics in the message box and attaches a screenshot, for the thread you have open (or a new one).")
-	self.controls = { dd, design, accent, size, test, testNotice, reload, resetTracker, selftest, report }
+	self.controls = { dd, design, size, test, testNotice, reload, resetTracker, selftest, report }
 end
 
 -- One setting row: a name, the line under it, a hairline, and the control on the right.
@@ -446,36 +415,15 @@ function S:CreateModern(page)
 		{ value = "xlarge", label = "Extra large" },
 	}, ns.db.settings.windowScale or "auto")
 
-	local note = CreateFrame("Frame", nil, content)
-	local noteName = note:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-	noteName:SetPoint("TOPLEFT", 12, -8)
-	noteName:SetPoint("RIGHT", -12, 0)
-	noteName:SetJustifyH("LEFT")
-	noteName:SetText("Modern window")
-	Theme.SetText(noteName, theme.text)
-	local noteAbout = note:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-	noteAbout:SetPoint("TOPLEFT", noteName, "BOTTOMLEFT", 0, -2)
-	noteAbout:SetPoint("RIGHT", note, "RIGHT", -12, 0)
-	noteAbout:SetJustifyH("LEFT")
-	noteAbout:SetWordWrap(true)
-	noteAbout:SetText(MODERN_NOTE)
-	Theme.SetText(noteAbout, theme.muted)
-	note:SetHeight(44)
-	note.section = "window"
-	note.hay = "modern window accent transparency"
-	note.Title = noteName
-	table.insert(self.rows, note)
-	self.modernNote = note
-
-	self.accent = ChoiceRow("window", "Accent", "Colors Start, the selected thread, and headings. Class color follows your class.", "accent class verdigris ice copper gold color modern", 220, ChooseAccent)
+	self.accent = ChoiceRow("modern", "Accent", "Colors Start, the selected thread, and headings. Class color follows your class.", "accent class verdigris ice copper gold color modern", 220, ChooseAccent)
 	self.accent:SetOptions(AccentChoices(), ns.db.settings.accent or "class")
 
 	local clearRow = CreateFrame("Frame", nil, content)
-	local opacity = UI.Slider(clearRow, 200, 0, 100, 5, ChooseClear, ClearText)
+	local opacity = UI.Slider(clearRow, 200, 0, 100, 1, ChooseClear, ClearText)
 	opacity:SetPoint("RIGHT", -8, 0)
-	opacity:SetValue(ns.db.settings.windowClear or 0, true)
-	Describe(clearRow, "Transparency", "How much of the world shows through this window.", opacity, theme)
-	clearRow.section = "window"
+	opacity:SetValue(ns.db.settings.windowClear or 6, true)
+	Describe(clearRow, "Transparency", "How much of the world shows through this window. It starts where the dusk ground did.", opacity, theme)
+	clearRow.section = "modern"
 	clearRow.hay = "transparency opacity clear solid modern window"
 	table.insert(self.rows, clearRow)
 	self.opacity = opacity
@@ -564,7 +512,6 @@ end
 function S:Teardown()
 	self.page, self.checks, self.controls = nil, nil, nil
 	self.voice, self.size, self.design, self.accent, self.opacity, self.info = nil, nil, nil, nil, nil, nil
-	self.modernNote = nil
 	self.rows, self.nav, self.search, self.heading, self.subhead = nil, nil, nil, nil, nil
 	self.infoRow, self.content, self.empty, self.section = nil, nil, nil, nil
 end
@@ -595,8 +542,8 @@ function S:Refresh()
 		self.accent:Update()
 	end
 	if self.opacity then
-		local clear = ns.db.settings.windowClear or 0
-		if type(clear) ~= "number" then clear = 0 end
+		local clear = ns.db.settings.windowClear
+		if type(clear) ~= "number" then clear = 6 end
 		self.opacity:SetValue(clear, true)
 	end
 	local T = ns.Transport

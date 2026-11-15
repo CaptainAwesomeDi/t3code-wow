@@ -1041,8 +1041,8 @@ function M:ApplyOpacity()
 	local f = self.frame
 	local theme = Theme.Get()
 	if not f or not theme or not f.ModernBg then return end
-	local clear = ns.db.settings.windowClear or 0
-	if type(clear) ~= "number" then clear = 0 end
+	local clear = ns.db.settings.windowClear
+	if type(clear) ~= "number" then clear = 6 end
 	clear = math.max(0, math.min(100, clear))
 	local alpha = 1 - clear / 100
 	local bg = theme.windowBg

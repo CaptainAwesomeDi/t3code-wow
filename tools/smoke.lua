@@ -1259,7 +1259,7 @@ do
 	local ground, accent, panel = theme.windowBg, theme.accent, theme.panel
 	local hairline, muted, text, onAccent = theme.hairline, theme.muted, theme.text, theme.onAccent
 	check(f.ModernBg._color[1] == ground[1] and f.ModernBg._color[2] == ground[2] and f.ModernBg._color[3] == ground[3], "the modern ground is painted")
-	check(f.ModernBg._color[4] == 1, "the window is a flat navy, with no dark band")
+	check(math.abs(f.ModernBg._color[4] - 0.94) < 0.001, "the window starts at the dusk transparency")
 	check(f.TopTileStreaks and f.TopTileStreaks._shown == false and f.TitleBg and f.TitleBg._shown == false, "the template's black streaks are hidden")
 	check(not f.ModernRim, "the gold top trim is gone")
 	local rules = 0
@@ -1267,7 +1267,7 @@ do
 		if rgba(r._color, hairline) and (r._w == 1 or r._h == 1) then rules = rules + 1 end
 	end
 	check(rules >= 4, "the window has a hairline border")
-	check(f.ModernBand._color[1] == ground[1] and f.ModernBand._color[4] == 1, "the title is the same navy")
+	check(f.ModernBand._color[1] == ground[1] and f.ModernBand._color[4] == f.ModernBg._color[4], "the title is the same navy")
 	local titleAt = f.Subtitle._points and f.Subtitle._points[1]
 	local statusAt = f.Status._points and f.Status._points[1]
 	check(titleAt and titleAt[1] == "LEFT" and titleAt[2] == f.ModernTitle, "the thread name sits in the title band")
@@ -1370,7 +1370,10 @@ do
 	check(ns.db.settings.tracker == true, "clicking the switch again turns it back on")
 	check(sw.Fill._points[#sw.Fill._points][1] == "RIGHT" and rgba(sw.Switch._regions[1]._vertex, accent), "the thumb returns to the right when the switch is on")
 	ns.db.settings.tracker = trackerOn
-	check(ns.Settings.nav and #ns.Settings.nav == 6, "modern settings lists its sections")
+	check(ns.Settings.nav and #ns.Settings.nav == 7, "modern settings lists its sections")
+	local modernTab = false
+	for _, b in ipairs(ns.Settings.nav) do if b.id == "modern" and b.Text:GetText() == "Modern" then modernTab = true end end
+	check(modernTab, "modern settings has a Modern page")
 	check(ns.Settings.heading:GetText() == "Notices", "settings open on Notices")
 	for _, b in ipairs(ns.Settings.nav) do if b.id == "voice" then b:Click() end end
 	check(ns.Settings.heading:GetText() == "Voice", "a section opens its page")
@@ -1542,18 +1545,21 @@ do
 	ns.Main:ShowPage("settings")
 	for _, b in ipairs(ns.Settings.nav) do if b.id == "window" then b:Click() end end
 	check(ns.Settings.heading:GetText() == "Window", "settings can open on Window")
-	check(ns.Settings.modernNote and ns.Settings.modernNote.Title:GetText() == "Modern window", "accent and transparency are grouped under Modern window")
-	check(ns.Settings.opacity and ns.Settings.opacity:GetValue() == 0 and ns.Settings.opacity.Text:GetText() == "Solid", "the window starts solid")
+	check(not ns.Settings.accent:GetParent():IsShown() and not ns.Settings.opacity:GetParent():IsShown(), "the window page leaves out accent and transparency")
+	for _, b in ipairs(ns.Settings.nav) do if b.id == "modern" then b:Click() end end
+	check(ns.Settings.heading:GetText() == "Modern" and ns.Settings.accent:GetParent():IsShown() and ns.Settings.opacity:GetParent():IsShown(), "accent and transparency are on the Modern page")
+	check(ns.Settings.opacity:GetValue() == 6 and ns.Settings.opacity.Text:GetText() == "6%" and math.abs(ns.Main.frame.ModernBg._color[4] - 0.94) < 0.001, "transparency starts at the dusk ground")
 	ns.Settings.opacity:SetValue(40)
 	check(ns.db.settings.windowClear == 40 and ns.Settings.opacity.Text:GetText() == "40%" and math.abs(ns.Main.frame.ModernBg._color[4] - 0.6) < 0.001 and math.abs(ns.Main.frame.ModernBand._color[4] - 0.6) < 0.001, "the transparency slider lets the world through the modern window")
 	ns.Settings.opacity:SetValue(0)
 	check(ns.db.settings.windowClear == 0 and ns.Main.frame.ModernBg._color[4] == 1, "solid puts the window back")
+	ns.Settings.opacity:SetValue(6)
 	check(ns.Settings.accent and ns.Settings.accent.value == "class" and ns.Settings.accent.Text:GetText() == "Class color", "settings lists the accent, starting on class color")
 	ns.Settings.accent.value = "verdigris"
 	local beforeAccent = ns.Main.frame
 	ns.Settings.accent:Step(1)
 	check(ns.Main.frame ~= beforeAccent and ns.db.settings.accent == "ice" and ns.Theme.ACCENT_HEX == "ff74c6de" and painted(ns.Main.frame.Bar.Send, ns.Theme.MODERN.accent), "picking the next accent repaints Start")
-	check(ns.Settings.section == "window" and ns.Settings.heading:GetText() == "Window", "picking an accent stays on the open settings section")
+	check(ns.Settings.section == "modern" and ns.Settings.heading:GetText() == "Modern", "picking an accent stays on the Modern page")
 	check(sample.payload and rgba(sample.Bar._color, ns.Theme.MODERN.accent) and rgba(sample.Title._textColor, ns.Theme.MODERN.accent), "the open notice takes the new accent")
 	local named
 	for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
@@ -1576,10 +1582,7 @@ do
 	ns.Settings.design:Step(-1)
 	local f3 = ns.Main.frame
 	check(f3 ~= f and not f3.ModernBg and ns.db.settings.theme == "classic", "choosing classic in the design dropdown rebuilds the game's window")
-	check(ns.Settings.modernNote and ns.Settings.modernNote.Title:GetText() == "Modern window", "classic settings group accent and transparency under Modern window")
-	ns.Settings.opacity:SetValue(50)
-	check(ns.db.settings.windowClear == 50 and not f3.ModernBg, "transparency is saved, and the classic frames stay as they are")
-	ns.db.settings.windowClear = 0
+	check(not ns.Settings.accent and not ns.Settings.opacity, "classic settings leave out accent and transparency")
 	check(ns.Color("gold", "Start") == "|cffffd100Start|r" and ns.Theme.Markup("|cffffd100Plan|r") == "|cffffd100Plan|r", "classic headings stay the game's gold")
 	check(f3._w == 1100 and f3._h == 700, "the resized size carries across the design switch")
 	check(f3.ResizeGrip ~= nil, "the classic window resizes too")
@@ -1598,12 +1601,6 @@ do
 	ns.Tracker:Refresh()
 	check(f3.NineSlice and f3.NineSlice._shown ~= false, "the game's ornate border is back")
 	check(f3.TopTileStreaks and f3.TopTileStreaks._shown ~= false and f3.TitleBg._shown ~= false, "the classic frame keeps its title streaks")
-	local classicFrame = ns.Main.frame
-	ns.Settings.accent:Step(1)
-	check(ns.db.settings.accent == "ice" and ns.db.settings.theme == "classic" and ns.Main.frame == classicFrame, "choosing an accent on the classic look stores it and leaves the window")
-	ns.db.settings.accent = "verdigris"
-	ns.Settings.accent.value = "verdigris"
-	ns.Settings.accent:Update()
 	check(f3:IsShown() and ns.Main.page == page, "still open on the same page after switching back")
 	ns.Main:ShowPage("settings")
 	check(ns.Settings.design.value == "classic", "the design dropdown follows the setting")
