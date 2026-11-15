@@ -1280,8 +1280,16 @@ function M:Refresh()
 	ns.Family:Refresh()
 	ns.Transcript:Refresh()
 	-- The thread title belongs to the threads page. The other pages name themselves.
-	if Theme.Get() and self.page ~= "threads" then
+	local theme = Theme.Get()
+	if theme and self.page ~= "threads" then
 		f.Subtitle:SetText(self.page == "usage" and "Usage" or "Settings")
+	end
+	-- A thread's name takes the accent. Page names stay near-white, and a grey
+	-- placeholder keeps the color written into its text.
+	if theme then
+		local title = f.Subtitle:GetText() or ""
+		local named = self.page == "threads" and not title:find("|c", 1, true)
+		Theme.SetText(f.Subtitle, named and theme.accent or theme.text)
 	end
 end
 

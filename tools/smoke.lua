@@ -1271,6 +1271,10 @@ do
 	local titleAt = f.Subtitle._points and f.Subtitle._points[1]
 	local statusAt = f.Status._points and f.Status._points[1]
 	check(titleAt and titleAt[1] == "LEFT" and titleAt[2] == f.ModernTitle, "the thread name sits in the title band")
+	local titlePage = ns.Main.page
+	ns.Main:ShowPage("threads")
+	check(rgba(f.Subtitle._textColor, accent) and not (f.Subtitle:GetText() or ""):find("|c", 1, true), "the open thread's title uses the accent")
+	ns.Main:ShowPage(titlePage)
 	check(statusAt and statusAt[2] == f.SidebarToggle, "the link status sits beside the list toggle")
 	check(f.SidebarToggle.Icon._texture:find("icons\\chevron-left", 1, true) ~= nil, "the list toggle is a line chevron")
 	check(f.ModernClose and f.ModernClose.Text:GetText() == "×", "the modern close is a quiet ×")
@@ -1312,7 +1316,7 @@ do
 	check(notice.Bar and notice.Bar._shown ~= false and rgba(notice.Bar._color, accent), "a notice carries the accent bar")
 	check(notice.Edge and notice.Edge[1]._shown ~= false and rgba(notice.Edge[1]._color, hairline), "a notice has a hairline around it")
 	check(rgba(notice._backdropColor, theme.windowBg) and theme.windowBg[4] < 1, "a notice uses the window's translucent ground")
-	check(rgba(notice.Title._textColor, text) and notice.Title._shadow[1] == 0, "a notice title is flat, not the game's gold")
+	check(rgba(notice.Title._textColor, accent) and notice.Title._shadow[1] == 0, "a notice title uses the accent")
 	check(notice.Text:GetText():find("Finished", 1, true) and not notice.Text:GetText():find("ff1eff00", 1, true), "a finished notice keeps the status quiet")
 	check(ns.Settings.checks[1].Fill ~= nil and ns.Settings.checks[1].Sync ~= nil, "modern settings use a drawn switch")
 	local search = ns.ThreadList.search
@@ -1542,7 +1546,7 @@ do
 	ns.Settings.accent:Step(1)
 	check(ns.Main.frame ~= beforeAccent and ns.db.settings.accent == "ice" and ns.Theme.ACCENT_HEX == "ff74c6de" and painted(ns.Main.frame.Bar.Send, ns.Theme.MODERN.accent), "picking the next accent repaints Start")
 	check(ns.Settings.section == "window" and ns.Settings.heading:GetText() == "Window", "picking an accent stays on the open settings section")
-	check(sample.payload and rgba(sample.Bar._color, ns.Theme.MODERN.accent), "the open notice takes the new accent")
+	check(sample.payload and rgba(sample.Bar._color, ns.Theme.MODERN.accent) and rgba(sample.Title._textColor, ns.Theme.MODERN.accent), "the open notice takes the new accent")
 	ns.Theme.UseAccent("nope")
 	check(ns.Theme.ACCENT_HEX == "ff7fd2b3" and ns.Theme.MODERN.accent[1] == ns.Theme.ACCENTS[1].rgb[1], "an unknown accent is verdigris")
 	ns.db.settings.accent = "verdigris"
@@ -1559,6 +1563,7 @@ do
 	check(tf.Lines[1].Sub:GetText():find("^- ", 1) ~= nil, "classic status keeps the tracker dash")
 	check(tf.Lines[1].Dot._shown ~= false, "the classic tracker dot is back")
 	check(notice.Bar._shown == false and notice._backdrop and notice._backdrop.edgeFile ~= nil, "a notice goes back to the gold border")
+	check(rgba(notice.Title._textColor, { 1, 0.82, 0, 1 }), "a notice title goes back to the game's gold")
 	ns.Store.data.threads = savedTrackerThreads
 	ns.Tracker:Refresh()
 	check(f3.NineSlice and f3.NineSlice._shown ~= false, "the game's ornate border is back")
