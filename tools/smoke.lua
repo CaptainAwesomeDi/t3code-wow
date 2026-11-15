@@ -1260,6 +1260,27 @@ do
 	local hairline, muted, text, onAccent = theme.hairline, theme.muted, theme.text, theme.onAccent
 	check(f.ModernBg._color[1] == ground[1] and f.ModernBg._color[2] == ground[2] and f.ModernBg._color[3] == ground[3], "the modern ground is painted")
 	check(math.abs(f.ModernBg._color[4] - 0.94) < 0.001, "the window starts at the dusk transparency")
+	do
+		local savedView = ns.Store.data.view
+		ns.Store.data.view = {
+			id = ns.viewId,
+			msgs = {
+				{ r = "u", t = "hello", at = 1, n = 1 },
+				{ r = "a", t = "hi", at = 2, n = 2, live = true },
+			},
+		}
+		ns.Transcript:Refresh(true)
+		local youLabel, agentLabel
+		for _, r in ipairs(ns.Transcript.scrollBox._rows or {}) do
+			if r.ed and r.ed.kind == "msg" and r.frame and r.frame.Label then
+				if r.ed.msg.r == "u" then youLabel = r.frame.Label:GetText() else agentLabel = r.frame.Label:GetText() end
+			end
+		end
+		check(youLabel == ns.Color("gold", "You"), "a player's line is labeled You")
+		check(agentLabel == ns.Color("agent", "Agent") .. ns.Color("grey", "  writing…"), "a live reply is labeled Agent")
+		ns.Store.data.view = savedView
+		ns.Transcript:Refresh(true)
+	end
 	check(f.TopTileStreaks and f.TopTileStreaks._shown == false and f.TitleBg and f.TitleBg._shown == false, "the template's black streaks are hidden")
 	check(not f.ModernRim, "the gold top trim is gone")
 	local rules = 0
@@ -1553,7 +1574,28 @@ do
 	check(ns.db.settings.windowClear == 40 and ns.Settings.opacity.Text:GetText() == "40%" and math.abs(ns.Main.frame.ModernBg._color[4] - 0.6) < 0.001 and math.abs(ns.Main.frame.ModernBand._color[4] - 0.6) < 0.001, "the transparency slider lets the world through the modern window")
 	ns.Settings.opacity:SetValue(0)
 	check(ns.db.settings.windowClear == 0 and ns.Main.frame.ModernBg._color[4] == 1, "solid puts the window back")
+	ns.db.settings.windowClear = 250
+	ns.Main:ApplyOpacity()
+	check(ns.Main.frame.ModernBg._color[4] == 0, "transparency stops at fully clear")
+	ns.db.settings.windowClear = -5
+	ns.Main:ApplyOpacity()
+	check(ns.Main.frame.ModernBg._color[4] == 1, "transparency stops at solid")
+	ns.db.settings.windowClear = nil
+	ns.Main:ApplyOpacity()
+	check(math.abs(ns.Main.frame.ModernBg._color[4] - 0.94) < 0.001, "a missing transparency uses the dusk ground")
+	ns.Settings.opacity:SetValue(100)
+	ns.Settings.opacity:GetScript("OnMouseWheel")(ns.Settings.opacity, 1)
+	check(ns.Settings.opacity:GetValue() == 100 and ns.db.settings.windowClear == 100, "the wheel won't pass fully clear")
+	ns.Settings.opacity:SetValue(0)
+	ns.Settings.opacity:GetScript("OnMouseWheel")(ns.Settings.opacity, -1)
+	check(ns.Settings.opacity:GetValue() == 0, "the wheel won't pass solid")
 	ns.Settings.opacity:SetValue(6)
+	check(ns.db.settings.windowClear == 6 and math.abs(ns.Main.frame.ModernBg._color[4] - 0.94) < 0.001, "the slider can return to the dusk ground")
+	ns.Settings.search:SetText("transparency")
+	ns.Settings.search:GetScript("OnTextChanged")(ns.Settings.search)
+	check(ns.Settings.opacity:GetParent():IsShown() and not ns.Settings.design:GetParent():IsShown(), "searching transparency finds it, and not the design")
+	ns.Settings.search:SetText("")
+	ns.Settings.search:GetScript("OnTextChanged")(ns.Settings.search)
 	check(ns.Settings.accent and ns.Settings.accent.value == "class" and ns.Settings.accent.Text:GetText() == "Class color", "settings lists the accent, starting on class color")
 	ns.Settings.accent.value = "verdigris"
 	local beforeAccent = ns.Main.frame
@@ -1582,7 +1624,7 @@ do
 	ns.Settings.design:Step(-1)
 	local f3 = ns.Main.frame
 	check(f3 ~= f and not f3.ModernBg and ns.db.settings.theme == "classic", "choosing classic in the design dropdown rebuilds the game's window")
-	check(not ns.Settings.accent and not ns.Settings.opacity, "classic settings leave out accent and transparency")
+	check(ns.Settings.design and ns.Settings.size and not ns.Settings.accent and not ns.Settings.opacity, "classic settings keep design and size, and leave out accent and transparency")
 	check(ns.Color("gold", "Start") == "|cffffd100Start|r" and ns.Theme.Markup("|cffffd100Plan|r") == "|cffffd100Plan|r", "classic headings stay the game's gold")
 	check(f3._w == 1100 and f3._h == 700, "the resized size carries across the design switch")
 	check(f3.ResizeGrip ~= nil, "the classic window resizes too")
