@@ -68,9 +68,9 @@ local function InitMessage(frame, ed)
 	end
 	local m = ed.msg
 	if m.r == "u" then
-		frame.Label:SetText(ns.Color("gold", ed.echo and "you  |cff9d9d9d(sending…)|r" or "you"))
+		frame.Label:SetText(ns.Color("gold", ed.echo and "You  |cff9d9d9d(sending…)|r" or "You"))
 	else
-		frame.Label:SetText(ns.Color("agent", "agent") .. (m.live and ns.Color("grey", "  writing…") or ""))
+		frame.Label:SetText(ns.Color("agent", "Agent") .. (m.live and ns.Color("grey", "  writing…") or ""))
 	end
 	frame.Body:SetWidth(T:BodyWidth())
 	frame.Body:SetText(ns.Theme.Markup(m.t))
