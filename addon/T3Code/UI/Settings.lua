@@ -12,7 +12,7 @@ ns.Settings = S
 
 local function AccentChoices()
 	local options = {}
-	for _, a in ipairs(Theme.ACCENTS) do
+	for _, a in ipairs(Theme.Accents()) do
 		table.insert(options, { value = a.value, label = a.label })
 	end
 	return options
@@ -135,7 +135,7 @@ function S:CreateClassic(page)
 	accentLabel:SetText("Accent")
 	local accent = UI.Dropdown(page, 240, ChooseAccent)
 	accent:SetPoint("LEFT", accentLabel, "RIGHT", 16, 0)
-	accent.tipBody = "Colors Start, the selected thread, and headings in the modern window."
+	accent.tipBody = "Colors Start, the selected thread, and headings in the modern window. Class color follows your class."
 	accent:SetOptions(AccentChoices(), ns.db.settings.accent or "verdigris")
 	self.accent = accent
 	y = y - 40
@@ -402,7 +402,7 @@ function S:CreateModern(page)
 		{ value = "modern", label = "Modern (flat, dark)" },
 	}, ns.db.settings.theme or "classic")
 
-	self.accent = ChoiceRow("window", "Accent", "Colors Start, the selected thread, and headings.", "accent verdigris ice copper gold color", 220, ChooseAccent)
+	self.accent = ChoiceRow("window", "Accent", "Colors Start, the selected thread, and headings. Class color follows your class.", "accent class verdigris ice copper gold color", 220, ChooseAccent)
 	self.accent:SetOptions(AccentChoices(), ns.db.settings.accent or "verdigris")
 
 	self.size = ChoiceRow("window", "Window size", "Automatic grows the window while a controller is in use.", "window size automatic normal large", 220, function(value)

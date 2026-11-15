@@ -107,7 +107,7 @@ local DEFAULTS = {
 		windowScale = "auto",
 		padChord = "auto",
 		theme = "classic", -- classic (the game's own look) | modern (flat, dark)
-		accent = "verdigris", -- verdigris | ice | copper | gold, the modern window only
+		accent = "class", -- class (the player's) | verdigris | ice | copper | gold, the modern window only
 		listWidth = 300, -- the thread list, dragged wider or narrower from its edge
 	},
 	drafts = {},

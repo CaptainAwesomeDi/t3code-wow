@@ -1245,7 +1245,7 @@ do
 	ns.Settings.design:Step(1)
 	local f = ns.Main.frame
 	check(f ~= old and ns.db.settings.theme == "modern", "choosing modern in the design dropdown rebuilds the window")
-	check(ns.db.settings.accent == "verdigris" and ns.Theme.ACCENT_HEX == "ff7fd2b3", "the accent starts on verdigris")
+	check(ns.db.settings.accent == "class" and ns.Theme.ACCENT_HEX == "ff7fd2b3", "the accent defaults to class color, and verdigris until the class is known")
 	check(ns.Color("gold", "Start") == "|c" .. ns.Theme.ACCENT_HEX .. "Start|r", "a heading uses the accent instead of the game's gold")
 	check(ns.Theme.Markup("|cffffd100Plan|r and |cffff4040no|r") == "|c" .. ns.Theme.ACCENT_HEX .. "Plan|r and |cffff4040no|r", "only the game's gold in a message becomes the accent")
 	local printed = #Stub.printed
@@ -1542,7 +1542,8 @@ do
 	ns.Main:ShowPage("settings")
 	for _, b in ipairs(ns.Settings.nav) do if b.id == "window" then b:Click() end end
 	check(ns.Settings.heading:GetText() == "Window", "settings can open on Window")
-	check(ns.Settings.accent and ns.Settings.accent.value == "verdigris", "settings lists the accent, starting on verdigris")
+	check(ns.Settings.accent and ns.Settings.accent.value == "class" and ns.Settings.accent.Text:GetText() == "Class color", "settings lists the accent, starting on class color")
+	ns.Settings.accent.value = "verdigris"
 	local beforeAccent = ns.Main.frame
 	ns.Settings.accent:Step(1)
 	check(ns.Main.frame ~= beforeAccent and ns.db.settings.accent == "ice" and ns.Theme.ACCENT_HEX == "ff74c6de" and painted(ns.Main.frame.Bar.Send, ns.Theme.MODERN.accent), "picking the next accent repaints Start")
@@ -1555,6 +1556,14 @@ do
 	check(named and rgba(named.Title._textColor, ns.Theme.MODERN.accent), "a thread name in the list takes the new accent")
 	ns.Theme.UseAccent("nope")
 	check(ns.Theme.ACCENT_HEX == "ff7fd2b3" and ns.Theme.MODERN.accent[1] == ns.Theme.ACCENTS[1].rgb[1], "an unknown accent is verdigris")
+	UnitClass = function() return "Hunter", "HUNTER" end
+	ns.Theme.UseAccent("class")
+	check(ns.Theme.MODERN.accent[1] == 0.67 and ns.Theme.MODERN.accent[2] == 0.83 and ns.Theme.MODERN.accent[3] == 0.45 and ns.Theme.ClassAccent().label == "Class color (Hunter)", "class color uses the player's class")
+	RAID_CLASS_COLORS = { HUNTER = { r = 0.2, g = 0.4, b = 0.6 } }
+	ns.Theme.UseAccent("class")
+	check(ns.Theme.MODERN.accent[1] == 0.2 and ns.Theme.ACCENT_HEX == "ff336699", "a changed class color wins over the built-in one")
+	RAID_CLASS_COLORS = nil
+	UnitClass = nil
 	ns.db.settings.accent = "verdigris"
 	ns.Theme.UseAccent("verdigris")
 	ns.Main:ShowPage(page)
