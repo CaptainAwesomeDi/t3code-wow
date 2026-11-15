@@ -28,6 +28,10 @@ test('without defaults, the latest thread in the project, then anywhere', () => 
   const settings = { defaultModelSelection: null, fallbackModelSelection: null };
   assert.equal(pickModelSelection({ project: { id: 'p' }, settings, threads, providers }).model, 'new-here');
   assert.equal(pickModelSelection({ project: { id: 'none' }, settings, threads, providers }).model, 'elsewhere');
+  // A fork is the player's own thread, so its model is a choice; a side chat's is not.
+  const fork = { projectId: 'p', createdAt: '2026-11-12T00:00:00Z', modelSelection: sel('claude', 'forked'), lineage: { parentThreadId: 'x', relationshipToParent: 'fork' } };
+  const sideChat = { projectId: 'p', createdAt: '2026-11-13T00:00:00Z', modelSelection: sel('codex', 'side-chat'), lineage: { parentThreadId: 'x', relationshipToParent: 'fork', sideChat: true } };
+  assert.equal(pickModelSelection({ project: { id: 'p' }, settings, threads: [...threads, fork, sideChat], providers }).model, 'forked');
   assert.equal(pickModelSelection({ settings, threads: [], providers }), null);
 });
 
@@ -71,6 +75,13 @@ test('a picked model keeps the options last used with it', () => {
   const max = [{ id: 'reasoningEffort', value: 'max' }];
   threads.push({ createdAt: '2026-11-09T00:00:00Z', modelSelection: { instanceId: 'codex', model: 'b', options: max }, delegatedFrom: { environmentId: 'e2', threadId: 'y' } });
   assert.deepEqual(chosenModelSelection({ instanceId: 'codex', model: 'b' }, { providers, candidates: [auto], threads }).options, high);
+  // A fork is the player's own thread, so its level counts; a subagent's or a side chat's does not.
+  const xhigh = [{ id: 'reasoningEffort', value: 'xhigh' }];
+  const child = (createdAt, options, lineage) => ({ createdAt, modelSelection: { instanceId: 'codex', model: 'b', options }, lineage: { parentThreadId: 'x', ...lineage } });
+  threads.push(child('2026-11-11T00:00:00Z', xhigh, { relationshipToParent: 'fork' }));
+  threads.push(child('2026-11-12T00:00:00Z', low, { relationshipToParent: 'subagent' }));
+  threads.push(child('2026-11-13T00:00:00Z', low, { relationshipToParent: 'fork', sideChat: true }));
+  assert.deepEqual(chosenModelSelection({ instanceId: 'codex', model: 'b' }, { providers, candidates: [auto], threads }).options, xhigh);
   // Never used: no options, so T3 applies the model's defaults.
   assert.deepEqual(chosenModelSelection({ instanceId: 'codex', model: 'b' }, { providers }), { instanceId: 'codex', model: 'b' });
   assert.throws(() => chosenModelSelection({ instanceId: 'off', model: 'z' }, { providers }), /switched off/);

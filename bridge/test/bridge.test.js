@@ -886,6 +886,8 @@ test('a thread whose child threads still run is waiting on them, as in T3 Code',
   assert.deepEqual([row().s, row().l, row().st], ['waiting', 'Waiting on 1 subagent', Date.parse('2026-01-01T00:05:00Z') / 1000]);
   b.t3.threads.set('kid', { ...kid, status: 'completed', activityRunStatus: null });
   assert.equal(row().s, 'open', 'done once its children are');
+  b.t3.threads.set('fork', { ...kid, id: 'fork', lineage: { parentThreadId: 'lead', relationshipToParent: 'fork' } });
+  assert.equal(row().s, 'open', 'a running fork is a thread of its own and holds nobody');
 });
 
 test('ending a turn into waiting is not announced; the wait ending is', async () => {
@@ -922,6 +924,40 @@ test('running subagent threads are listed, idle ones are not', async () => {
   const ids = b.buildSnapshot().threads.map((t) => t.id);
   assert.ok(ids.includes('busy-kid'), 'a running subagent thread is listed');
   assert.ok(!ids.includes('idle-kid'), 'an idle one is not');
+});
+
+test('a forked thread is a thread of its own; a subagent or side chat is not', async () => {
+  const { b } = fakeBridge();
+  const now = new Date().toISOString();
+  const idle = (id, lineage) => ({ id, title: id, projectId: 'p1', status: 'completed', updatedAt: now, lineage: { parentThreadId: 't1', rootThreadId: 't1', ...lineage } });
+  b.t3.threads.set('fork', idle('fork', { relationshipToParent: 'fork' }));
+  b.t3.threads.set('side-chat', idle('side-chat', { relationshipToParent: 'fork', sideChat: true }));
+  b.t3.threads.set('kid', idle('kid', { relationshipToParent: 'subagent' }));
+  const ids = b.buildSnapshot().threads.map((t) => t.id);
+  assert.ok(ids.includes('fork'), 'an idle fork stays listed');
+  assert.ok(!ids.includes('side-chat'), 'an idle side chat does not');
+  assert.ok(!ids.includes('kid'), 'nor an idle subagent thread');
+
+  const said = [];
+  b.announce = (t) => said.push(t.id);
+  for (const id of ['fork', 'side-chat', 'kid']) {
+    const done = b.t3.threads.get(id);
+    b.onT3Change({ kind: 'thread', prev: { ...done, status: 'running', activityRunStatus: 'running' }, thread: done });
+  }
+  assert.deepEqual(said, ['fork'], 'only the fork finishing is announced');
+
+  const { Fleet } = await import('../src/fleet.js');
+  const fleet = new Fleet({ localTokens: async () => 'x' });
+  for (const [id, t] of b.t3.threads) if (['fork', 'side-chat', 'kid'].includes(id)) fleet.local.client.threads.set(id, t);
+  assert.equal(fleet.environments()[0].threads, 1, 'and only the fork is counted');
+  b.writeStatus();
+  const counted = JSON.parse(fs.readFileSync(b.statusFile, 'utf8')).t3.threads;
+  for (const id of ['side-chat', 'kid']) b.t3.threads.delete(id);
+  b.writeStatus();
+  assert.equal(JSON.parse(fs.readFileSync(b.statusFile, 'utf8')).t3.threads, counted, 'in the status file too');
+  b.t3.threads.delete('fork');
+  b.writeStatus();
+  assert.equal(JSON.parse(fs.readFileSync(b.statusFile, 'utf8')).t3.threads, counted - 1);
 });
 
 test('a task another machine delegated here is listed and counted like a subagent thread', async () => {
