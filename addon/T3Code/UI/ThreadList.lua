@@ -143,7 +143,7 @@ local function InitRow(button, ed)
 	if button.AccentBar then button.AccentBar:SetShown(selected) end
 	button.Title:SetText(t.title)
 	local rowW = button:GetWidth() or 0
-	TrimTo(button.Title, t.title, rowW - 18 - indent - 78)
+	TrimTo(button.Title, t.title, rowW - 18 - 78)
 	local theme = ns.Theme.Get()
 	if t.s == "settled" or t.s == "snoozed" then
 		button.Title:SetTextColor(theme and theme.muted[1] or 0.75, theme and theme.muted[2] or 0.75, theme and theme.muted[3] or 0.75)
@@ -158,7 +158,7 @@ local function InitRow(button, ed)
 	button.Status:SetText(ns.Color(ns.Store.StatusColor(t.s), ns.Store.StatusText(t.s)))
 	local sub = ns.Store:ProjectName(t.p)
 	if t.s == "working" or t.s == "input" or t.s == "waiting" then sub = t.l or sub end
-	TrimTo(button.Sub, sub, rowW - 18 - indent - 64)
+	TrimTo(button.Sub, sub, rowW - 18 - 64)
 	if (t.s == "working" or t.s == "waiting") and t.st then
 		button.Age:SetText(ns.Duration(time() - t.st))
 	elseif t.s == "snoozed" then
