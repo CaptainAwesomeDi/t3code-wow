@@ -1247,7 +1247,10 @@ do
 	check(f ~= old and ns.db.settings.theme == "modern", "choosing modern in the design dropdown rebuilds the window")
 	check(ns.db.settings.accent == "verdigris" and ns.Theme.ACCENT_HEX == "ff7fd2b3", "the accent starts on verdigris")
 	check(ns.Color("gold", "Start") == "|c" .. ns.Theme.ACCENT_HEX .. "Start|r", "a heading uses the accent instead of the game's gold")
-	check(ns.Theme.Markup("|cffffd100Plan|r") == "|c" .. ns.Theme.ACCENT_HEX .. "Plan|r", "a markdown heading uses the accent")
+	check(ns.Theme.Markup("|cffffd100Plan|r and |cffff4040no|r") == "|c" .. ns.Theme.ACCENT_HEX .. "Plan|r and |cffff4040no|r", "only the game's gold in a message becomes the accent")
+	local printed = #Stub.printed
+	ns.Print("still gold")
+	check(Stub.printed[printed + 1]:find("|cffffd100T3 Code|r", 1, true) ~= nil, "chat keeps the game's gold while the window uses the accent")
 	check(f:IsShown(), "the window stays open across the switch")
 	check(ns.Main.page == page, "the open page survives the switch")
 	check(ns.Main.composer:GetInputText() == "a draft survives the switch", "the draft survives the switch")
@@ -1257,6 +1260,7 @@ do
 	local hairline, muted, text, onAccent = theme.hairline, theme.muted, theme.text, theme.onAccent
 	check(f.ModernBg._color[1] == ground[1] and f.ModernBg._color[2] == ground[2] and f.ModernBg._color[3] == ground[3], "the modern ground is painted")
 	check(f.ModernBg._color[4] == 1, "the window is a flat navy, with no dark band")
+	check(f.TopTileStreaks and f.TopTileStreaks._shown == false and f.TitleBg and f.TitleBg._shown == false, "the template's black streaks are hidden")
 	check(not f.ModernRim, "the gold top trim is gone")
 	local rules = 0
 	for _, r in ipairs(f._regions or {}) do
@@ -1306,6 +1310,7 @@ do
 		notice = ns.Toasts.frames[1]
 	end
 	check(notice.Bar and notice.Bar._shown ~= false and rgba(notice.Bar._color, accent), "a notice carries the accent bar")
+	check(notice.Edge and notice.Edge[1]._shown ~= false and rgba(notice.Edge[1]._color, hairline), "a notice has a hairline around it")
 	check(rgba(notice._backdropColor, theme.windowBg) and theme.windowBg[4] < 1, "a notice uses the window's translucent ground")
 	check(rgba(notice.Title._textColor, text) and notice.Title._shadow[1] == 0, "a notice title is flat, not the game's gold")
 	check(notice.Text:GetText():find("Finished", 1, true) and not notice.Text:GetText():find("ff1eff00", 1, true), "a finished notice keeps the status quiet")
@@ -1435,19 +1440,21 @@ do
 	local savedAnswer = ns.Transcript.answers.qModern
 	ns.Transcript.answers.qModern = { q = { a = true } }
 	ns.Store.data.view = {
-		id = ns.viewId, msgs = {},
+		id = ns.viewId, msgs = { { r = "a", t = "|cffffd100Plan|r and |cffff4040no|r", at = time(), n = 1 } },
 		pending = { id = "qModern", kind = "question", questions = {
 			{ id = "q", q = "Ship it?", multi = true, opts = { { v = "a", l = "Yes" }, { v = "b", l = "No" } } },
 		} },
 	}
 	ns.Transcript:Refresh(true)
-	local yes, no, submit, note
+	local yes, no, submit, note, msgRow
 	for _, r in ipairs(ns.Transcript.scrollBox._rows or {}) do
 		if r.ed.kind == "note" then note = r.frame
+		elseif r.ed.kind == "msg" then msgRow = r.frame
 		elseif r.ed.label == "Yes" then yes = r.frame
 		elseif r.ed.label == "No" then no = r.frame
 		elseif r.ed.primary then submit = r.frame end
 	end
+	check(msgRow and msgRow.Body:GetText() == "|c" .. ns.Theme.ACCENT_HEX .. "Plan|r and |cffff4040no|r", "a message's gold heading is drawn in the accent")
 	check(note and note.Icon._texture:find("icons\\arrow-right", 1, true) and rgba(note.Text._textColor, text), "a note uses a line icon and the title color")
 	check(yes and rgba(yes.Bullet._color, accent) and yes.Bullet._w == 10, "a chosen answer is a gold square")
 	check(no and rgba(no.Bullet._vertex, { 0.45, 0.45, 0.45, 1 }) and no.Bullet._w == 10 and rgba(labelOf(no)._textColor, muted), "an unchosen answer is a grey square, in the muted color")
@@ -1506,10 +1513,41 @@ do
 	local listMax = math.max(180, ns.Main.frame:GetWidth() - 420)
 	check(ns.db.settings.listWidth == listMax, "the thread list leaves room for the conversation")
 	ns.Main:ApplyListWidth(300)
+	local settingsScroll = ns.Settings.content and ns.Settings.content:GetParent()
+	local settingsBar = settingsScroll and settingsScroll.ScrollBar
+	check(settingsBar and settingsBar._shown == false, "the settings list has no black scrollbar")
+	settingsBar:Show()
+	check(settingsBar._shown == false, "the settings scrollbar stays hidden")
+	settingsScroll._vrange = 200
+	settingsScroll:GetScript("OnMouseWheel")(settingsScroll, -1)
+	check(settingsScroll._vscroll == 48, "the wheel scrolls the settings list")
+	settingsScroll:GetScript("OnMouseWheel")(settingsScroll, 1)
+	check(settingsScroll._vscroll == 0, "the wheel won't scroll past the top")
+	settingsScroll._vscroll = 190
+	settingsScroll:GetScript("OnMouseWheel")(settingsScroll, -1)
+	check(settingsScroll._vscroll == 200, "the wheel won't scroll past the end")
+	ns.Toasts:Preview()
+	local openThread = ns.viewId and ns.Store:Thread(ns.viewId)
+	local expectLast = (openThread and openThread.last) or "This is how a notice looks."
+	local sample
+	for _, fr in ipairs(ns.Toasts.frames) do
+		if fr.kind == "open" and fr.payload and fr.payload.last == expectLast then sample = fr end
+	end
+	check(sample and sample:IsShown() and sample.Text:GetText():find(expectLast, 1, true) and not sample.Text:GetText():find("|cff1eff00", 1, true) and rgba(sample.Bar._color, accent), "a test notice shows in the modern colors, on the accent bar")
+	ns.Main:ShowPage("settings")
+	for _, b in ipairs(ns.Settings.nav) do if b.id == "window" then b:Click() end end
+	check(ns.Settings.heading:GetText() == "Window", "settings can open on Window")
 	check(ns.Settings.accent and ns.Settings.accent.value == "verdigris", "settings lists the accent, starting on verdigris")
+	local beforeAccent = ns.Main.frame
 	ns.Settings.accent:Step(1)
-	check(ns.db.settings.accent == "ice" and ns.Theme.ACCENT_HEX == "ff74c6de" and painted(ns.Main.frame.Bar.Send, ns.Theme.MODERN.accent), "picking the next accent repaints Start")
+	check(ns.Main.frame ~= beforeAccent and ns.db.settings.accent == "ice" and ns.Theme.ACCENT_HEX == "ff74c6de" and painted(ns.Main.frame.Bar.Send, ns.Theme.MODERN.accent), "picking the next accent repaints Start")
+	check(ns.Settings.section == "window" and ns.Settings.heading:GetText() == "Window", "picking an accent stays on the open settings section")
+	check(sample.payload and rgba(sample.Bar._color, ns.Theme.MODERN.accent), "the open notice takes the new accent")
+	ns.Theme.UseAccent("nope")
+	check(ns.Theme.ACCENT_HEX == "ff7fd2b3" and ns.Theme.MODERN.accent[1] == ns.Theme.ACCENTS[1].rgb[1], "an unknown accent is verdigris")
 	ns.db.settings.accent = "verdigris"
+	ns.Theme.UseAccent("verdigris")
+	ns.Main:ShowPage(page)
 	ns.Settings.design:Step(-1)
 	local f3 = ns.Main.frame
 	check(f3 ~= f and not f3.ModernBg and ns.db.settings.theme == "classic", "choosing classic in the design dropdown rebuilds the game's window")
@@ -1524,6 +1562,13 @@ do
 	ns.Store.data.threads = savedTrackerThreads
 	ns.Tracker:Refresh()
 	check(f3.NineSlice and f3.NineSlice._shown ~= false, "the game's ornate border is back")
+	check(f3.TopTileStreaks and f3.TopTileStreaks._shown ~= false and f3.TitleBg._shown ~= false, "the classic frame keeps its title streaks")
+	local classicFrame = ns.Main.frame
+	ns.Settings.accent:Step(1)
+	check(ns.db.settings.accent == "ice" and ns.db.settings.theme == "classic" and ns.Main.frame == classicFrame, "choosing an accent on the classic look stores it and leaves the window")
+	ns.db.settings.accent = "verdigris"
+	ns.Settings.accent.value = "verdigris"
+	ns.Settings.accent:Update()
 	check(f3:IsShown() and ns.Main.page == page, "still open on the same page after switching back")
 	ns.Main:ShowPage("settings")
 	check(ns.Settings.design.value == "classic", "the design dropdown follows the setting")
