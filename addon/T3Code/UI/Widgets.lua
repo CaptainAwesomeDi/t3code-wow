@@ -612,6 +612,74 @@ function UI.Dropdown(parent, width, onChange)
 	return b
 end
 
+-- A horizontal slider. `value` runs from `min` to `max`. `onChange(value)` fires
+-- as it moves. The number at the right is filled in by `format`.
+function UI.Slider(parent, width, min, max, step, onChange, format)
+	local theme = Theme.Get()
+	local b = CreateFrame("Frame", nil, parent)
+	b:SetSize(width, 18)
+	b:EnableMouse(true)
+	b:EnableMouseWheel(true)
+	b.min, b.max, b.step = min, max, step or 0
+	b.trackW = width - 52
+	local track = b:CreateTexture(nil, "BACKGROUND")
+	if theme then Theme.Paint(track, theme.track) else track:SetColorTexture(0, 0, 0, 0.55) end
+	track:SetSize(b.trackW, 4)
+	track:SetPoint("LEFT", 4, 0)
+	local fill = b:CreateTexture(nil, "ARTWORK")
+	if theme then Theme.Paint(fill, theme.accent) else fill:SetColorTexture(1, 0.82, 0, 1) end
+	fill:SetHeight(4)
+	fill:SetPoint("LEFT", track, "LEFT", 0, 0)
+	local thumb = b:CreateTexture(nil, "OVERLAY")
+	thumb:SetSize(8, 14)
+	if theme then Theme.Paint(thumb, theme.knob) else thumb:SetColorTexture(1, 0.82, 0, 1) end
+	local text = b:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	text:SetPoint("RIGHT", 0, 0)
+	text:SetJustifyH("RIGHT")
+	if theme then Theme.SetText(text, theme.muted) end
+	b.Track, b.Fill, b.Thumb, b.Text = track, fill, thumb, text
+
+	function b:SetValue(value, silent)
+		value = math.max(self.min, math.min(self.max, value or self.min))
+		if self.step and self.step > 0 then
+			value = self.min + math.floor((value - self.min) / self.step + 0.5) * self.step
+			value = math.max(self.min, math.min(self.max, value))
+		end
+		self.value = value
+		local span = self.max - self.min
+		local t = span == 0 and 0 or (value - self.min) / span
+		self.Thumb:ClearAllPoints()
+		self.Thumb:SetPoint("CENTER", self.Track, "LEFT", t * self.trackW, 0)
+		self.Fill:SetWidth(math.max(1, t * self.trackW))
+		self.Text:SetText(format and format(value) or tostring(value))
+		if not silent and onChange then onChange(value) end
+	end
+	function b:GetValue() return self.value end
+
+	local function atCursor(self)
+		local scale = self:GetEffectiveScale() or 1
+		local x = GetCursorPosition() / scale
+		local left = (self:GetLeft() or 0) + 4
+		local t = self.trackW > 0 and (x - left) / self.trackW or 0
+		if t < 0 then t = 0 elseif t > 1 then t = 1 end
+		return self.min + t * (self.max - self.min)
+	end
+	b:SetScript("OnMouseDown", function(self, button)
+		if button ~= "LeftButton" then return end
+		self:SetValue(atCursor(self))
+		self:SetScript("OnUpdate", function(self)
+			if not IsMouseButtonDown("LeftButton") then self:SetScript("OnUpdate", nil) return end
+			self:SetValue(atCursor(self))
+		end)
+	end)
+	b:SetScript("OnMouseWheel", function(self, delta)
+		local step = (self.step and self.step > 0) and self.step or ((self.max - self.min) / 20)
+		self:SetValue((self.value or self.min) + (delta > 0 and step or -step))
+	end)
+	b:SetValue(min, true)
+	return b
+end
+
 function UI.Inset(parent)
 	local theme = Theme.Get()
 	if theme then

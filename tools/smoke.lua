@@ -1542,6 +1542,12 @@ do
 	ns.Main:ShowPage("settings")
 	for _, b in ipairs(ns.Settings.nav) do if b.id == "window" then b:Click() end end
 	check(ns.Settings.heading:GetText() == "Window", "settings can open on Window")
+	check(ns.Settings.modernNote and ns.Settings.modernNote.Title:GetText() == "Modern window", "accent and transparency are grouped under Modern window")
+	check(ns.Settings.opacity and ns.Settings.opacity:GetValue() == 0 and ns.Settings.opacity.Text:GetText() == "Solid", "the window starts solid")
+	ns.Settings.opacity:SetValue(40)
+	check(ns.db.settings.windowClear == 40 and ns.Settings.opacity.Text:GetText() == "40%" and math.abs(ns.Main.frame.ModernBg._color[4] - 0.6) < 0.001 and math.abs(ns.Main.frame.ModernBand._color[4] - 0.6) < 0.001, "the transparency slider lets the world through the modern window")
+	ns.Settings.opacity:SetValue(0)
+	check(ns.db.settings.windowClear == 0 and ns.Main.frame.ModernBg._color[4] == 1, "solid puts the window back")
 	check(ns.Settings.accent and ns.Settings.accent.value == "class" and ns.Settings.accent.Text:GetText() == "Class color", "settings lists the accent, starting on class color")
 	ns.Settings.accent.value = "verdigris"
 	local beforeAccent = ns.Main.frame
@@ -1570,6 +1576,10 @@ do
 	ns.Settings.design:Step(-1)
 	local f3 = ns.Main.frame
 	check(f3 ~= f and not f3.ModernBg and ns.db.settings.theme == "classic", "choosing classic in the design dropdown rebuilds the game's window")
+	check(ns.Settings.modernNote and ns.Settings.modernNote.Title:GetText() == "Modern window", "classic settings group accent and transparency under Modern window")
+	ns.Settings.opacity:SetValue(50)
+	check(ns.db.settings.windowClear == 50 and not f3.ModernBg, "transparency is saved, and the classic frames stay as they are")
+	ns.db.settings.windowClear = 0
 	check(ns.Color("gold", "Start") == "|cffffd100Start|r" and ns.Theme.Markup("|cffffd100Plan|r") == "|cffffd100Plan|r", "classic headings stay the game's gold")
 	check(f3._w == 1100 and f3._h == 700, "the resized size carries across the design switch")
 	check(f3.ResizeGrip ~= nil, "the classic window resizes too")
