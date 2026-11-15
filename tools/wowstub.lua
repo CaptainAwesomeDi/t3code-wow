@@ -53,6 +53,8 @@ local GETTERS = {
 	GetPushedTexture = function() return Stub.NewFrame("Texture") end,
 	GetFontHeight = function() return 14 end,
 	GetFrameLevel = function(self) return self._level or 1 end,
+	GetVerticalScroll = function(self) return self._vscroll or 0 end,
+	GetVerticalScrollRange = function(self) return self._vrange or 0 end,
 	GetRegions = function(self) return unpack(self._regions or {}) end,
 	GetScale = function(self) return self._scale or 1 end,
 	GetCenter = function(self) Stub.geo = (Stub.geo or 0) + 1 return 100 + (Stub.geo % 7) * 40, 500 - Stub.geo * 3 end,
@@ -102,6 +104,7 @@ local SETTERS = {
 	SetBackdrop = function(self, info) self._backdrop = info end,
 	SetBackdropColor = function(self, r, g, b, a) self._backdropColor = { r, g, b, a or 1 } end,
 	SetStatusBarColor = function(self, r, g, b, a) self._barColor = { r, g, b, a or 1 } end,
+	SetVerticalScroll = function(self, y) self._vscroll = y end,
 	SetTextInsets = function(self, left, right, top, bottom) self._insets = { left, right, top, bottom } end,
 	SetScript = function(self, name, fn) self._scripts[name] = fn end,
 	HookScript = function(self, name, fn)
@@ -192,7 +195,8 @@ FrameMT.__index = function(self, k)
 end
 
 local TEMPLATE_CHILDREN = {
-	ButtonFrameTemplate = { "Inset", "TitleContainer", "CloseButton", "NineSlice" },
+	ButtonFrameTemplate = { "Inset", "TitleContainer", "CloseButton", "NineSlice", "TopTileStreaks", "TitleBg" },
+	ScrollFrameTemplate = { "ScrollBar" },
 	LargeSideTabButtonTemplate = { "Icon", "SelectedTexture" },
 	UICheckButtonTemplate = { "Text" },
 	ObjectiveTrackerModuleHeaderTemplate = { "Text", "MinimizeButton", "Background" },
