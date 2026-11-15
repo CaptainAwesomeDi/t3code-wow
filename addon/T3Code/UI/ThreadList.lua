@@ -148,7 +148,7 @@ local function InitRow(button, ed)
 	if t.s == "settled" or t.s == "snoozed" then
 		button.Title:SetTextColor(theme and theme.muted[1] or 0.75, theme and theme.muted[2] or 0.75, theme and theme.muted[3] or 0.75)
 	elseif theme then
-		button.Title:SetTextColor(theme.text[1], theme.text[2], theme.text[3])
+		button.Title:SetTextColor(theme.accent[1], theme.accent[2], theme.accent[3])
 	else
 		button.Title:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
 	end

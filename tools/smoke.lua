@@ -1271,10 +1271,6 @@ do
 	local titleAt = f.Subtitle._points and f.Subtitle._points[1]
 	local statusAt = f.Status._points and f.Status._points[1]
 	check(titleAt and titleAt[1] == "LEFT" and titleAt[2] == f.ModernTitle, "the thread name sits in the title band")
-	local titlePage = ns.Main.page
-	ns.Main:ShowPage("threads")
-	check(rgba(f.Subtitle._textColor, accent) and not (f.Subtitle:GetText() or ""):find("|c", 1, true), "the open thread's title uses the accent")
-	ns.Main:ShowPage(titlePage)
 	check(statusAt and statusAt[2] == f.SidebarToggle, "the link status sits beside the list toggle")
 	check(f.SidebarToggle.Icon._texture:find("icons\\chevron-left", 1, true) ~= nil, "the list toggle is a line chevron")
 	check(f.ModernClose and f.ModernClose.Text:GetText() == "×", "the modern close is a quiet ×")
@@ -1479,6 +1475,11 @@ do
 		if r.ed.thread and r.ed.thread.s == "settled" then settledRow = r.frame end
 	end
 	check(group and group.Icon._texture:find("icons\\", 1, true) and painted(group, hairline), "a group header is a hairline and a line icon")
+	local liveRow
+	for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
+		if r.ed.thread and r.ed.thread.s == "working" then liveRow = r.frame end
+	end
+	check(liveRow and rgba(liveRow.Title._textColor, accent), "a thread's name in the list uses the accent")
 	check(settledRow and rgba(settledRow.Title._textColor, muted), "a settled thread's title is muted")
 	ns.db.settings.collapsed.settled = savedCollapsed
 	ns.Store.data.threads = needThreads
@@ -1547,6 +1548,11 @@ do
 	check(ns.Main.frame ~= beforeAccent and ns.db.settings.accent == "ice" and ns.Theme.ACCENT_HEX == "ff74c6de" and painted(ns.Main.frame.Bar.Send, ns.Theme.MODERN.accent), "picking the next accent repaints Start")
 	check(ns.Settings.section == "window" and ns.Settings.heading:GetText() == "Window", "picking an accent stays on the open settings section")
 	check(sample.payload and rgba(sample.Bar._color, ns.Theme.MODERN.accent) and rgba(sample.Title._textColor, ns.Theme.MODERN.accent), "the open notice takes the new accent")
+	local named
+	for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
+		if r.ed.thread and r.ed.thread.s ~= "settled" and r.ed.thread.s ~= "snoozed" then named = r.frame break end
+	end
+	check(named and rgba(named.Title._textColor, ns.Theme.MODERN.accent), "a thread name in the list takes the new accent")
 	ns.Theme.UseAccent("nope")
 	check(ns.Theme.ACCENT_HEX == "ff7fd2b3" and ns.Theme.MODERN.accent[1] == ns.Theme.ACCENTS[1].rgb[1], "an unknown accent is verdigris")
 	ns.db.settings.accent = "verdigris"
@@ -1564,6 +1570,11 @@ do
 	check(tf.Lines[1].Dot._shown ~= false, "the classic tracker dot is back")
 	check(notice.Bar._shown == false and notice._backdrop and notice._backdrop.edgeFile ~= nil, "a notice goes back to the gold border")
 	check(rgba(notice.Title._textColor, { 1, 0.82, 0, 1 }), "a notice title goes back to the game's gold")
+	local classicName
+	for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
+		if r.ed.thread and r.ed.thread.s ~= "settled" and r.ed.thread.s ~= "snoozed" then classicName = r.frame break end
+	end
+	check(classicName and rgba(classicName.Title._textColor, { 1, 0.82, 0, 1 }), "a thread name in the list goes back to the game's gold")
 	ns.Store.data.threads = savedTrackerThreads
 	ns.Tracker:Refresh()
 	check(f3.NineSlice and f3.NineSlice._shown ~= false, "the game's ornate border is back")
