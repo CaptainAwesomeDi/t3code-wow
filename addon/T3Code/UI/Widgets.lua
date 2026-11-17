@@ -281,6 +281,9 @@ function UI.IconButton(parent, icon, size, tooltip, onClick)
 	if theme then
 		local hl = Theme.Solid(b, theme.hover, "HIGHLIGHT")
 		hl:SetAllPoints()
+		-- A white line can't be desaturated, so a disabled button dims its stroke.
+		b:SetScript("OnDisable", function(self) self.Icon:SetAlpha(0.35) end)
+		b:SetScript("OnEnable", function(self) self.Icon:SetAlpha(1) end)
 	else
 		b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
 	end
