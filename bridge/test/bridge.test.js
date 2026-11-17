@@ -125,7 +125,7 @@ test('parseFrame reads the hashes of the parts the addon holds: projects, transc
   assert.equal(older.hello.hashes.fam, '', 'an addon without the family reports none');
 });
 
-test('a message T3 Code wrote itself is left out of the transcript', () => {
+test('a notification or task result T3 Code queued for the agent is left out of the transcript', () => {
   const { b } = fakeBridge();
   b.client = { session: 'sess', ui: 'ui1', ackedSeq: -1, flags: 'o', view: 't1', hashes: {} };
   const at = '2026-11-01T00:00:00Z';
@@ -135,8 +135,12 @@ test('a message T3 Code wrote itself is left out of the transcript', () => {
         { role: 'user', text: 'fix the build', createdBy: 'user', creationSource: 'web', createdAt: at },
         { role: 'assistant', text: 'delegated', createdAt: at },
         // A finished task's result, queued for the agent behind the run still going on.
-        { id: 'm3', role: 'user', text: 'Delegated task node:delegated-task:x (Fix the build) [completed]:\ndone', createdBy: 'agent', creationSource: 'server', createdAt: at },
+        { id: 'm3', role: 'user', text: 'Delegated task node:delegated-task:x (Fix the build) [completed]:\ndone', createdBy: 'agent', creationSource: 'server', delegatedCompletion: { taskId: 'node:delegated-task:x' }, createdAt: at },
         { id: 'm4', role: 'user', text: 'and then the tests', createdBy: 'user', creationSource: 'web', createdAt: at },
+        // A watched pull request changing, queued the same way.
+        { id: 'm5', role: 'user', text: 'PR #7 checks passed', createdBy: 'agent', creationSource: 'server', notification: { kind: 'pull_request' }, createdAt: at },
+        // T3 Code shows a message it sent to resume a run ("Sent by T3 Code"), so the game does too.
+        { id: 'm6', role: 'user', text: 'Continue where you left off.', createdBy: 'agent', creationSource: 'server', createdAt: at },
       ],
       turnItems: [],
       runtimeRequests: [],
@@ -144,12 +148,13 @@ test('a message T3 Code wrote itself is left out of the transcript', () => {
       runs: [
         { id: 'r3', status: 'queued', userMessageId: 'm3' },
         { id: 'r4', status: 'queued', userMessageId: 'm4' },
+        { id: 'r5', status: 'queued', userMessageId: 'm5' },
       ],
     },
     fetchedAt: Date.now(),
   });
   const { msgs, queued } = b.buildSnapshot().view;
-  assert.deepEqual(msgs.map((m) => [m.r, m.t]), [['u', 'fix the build'], ['a', 'delegated'], ['u', 'and then the tests']]);
+  assert.deepEqual(msgs.map((m) => [m.r, m.t]), [['u', 'fix the build'], ['a', 'delegated'], ['u', 'and then the tests'], ['u', 'Continue where you left off.']]);
   assert.equal(queued, 1);
 });
 

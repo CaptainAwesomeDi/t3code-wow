@@ -176,11 +176,11 @@ export function runSummary(projection, now = Date.now()) {
   return `${run.completedAt ? 'Last run' : 'This run so far'}: ${parts.join(' · ')}`;
 }
 
-// T3 Code writes some user messages itself, such as a delegated task's result
-// queued for the agent while its run still goes on. Nobody typed those, and T3
-// Code turns them into a notification once they are delivered.
+// T3 Code queues some user messages for the agent itself: a notification, such as
+// a watched pull request changing, or a delegated task's result. Nobody typed
+// those, and T3 Code leaves them out of its own queued count the same way.
 function isT3Notice(m) {
-  return m.role === 'user' && m.createdBy === 'agent' && m.creationSource === 'server';
+  return m.role === 'user' && (m.notification !== undefined || m.delegatedCompletion !== undefined);
 }
 
 // Follow-ups the player sent that wait behind the run going on. T3 Code queues
