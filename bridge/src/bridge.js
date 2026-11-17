@@ -727,13 +727,15 @@ export class Bridge {
     this.markDirty('important');
   }
 
-  // A reading's start goes out with the update for the command that started it. Its
-  // end only matters to the speaker button in the window, so it goes out like a
-  // status change while the window is open. Otherwise nothing is sent for it: each
-  // update is built when it goes, so the next one says the reading ended, and opening
-  // the window sends one if the speaker would still be red.
-  onSpeaking() {
-    if (!this.stopped && this.client?.flags.includes('o')) this.markDirty('important');
+  // A reading's start sends nothing: a command's reading goes out with the update for
+  // that command, and an announcement's with the next update. Its end only matters to
+  // the speaker button in the window once the addon was told it started, so then it
+  // goes out like a status change while the window is open. Otherwise nothing is sent
+  // for it: each update is built when it goes, so the next one says the reading ended,
+  // and opening the window sends one if the speaker would still be red.
+  onSpeaking(on) {
+    if (on || this.stopped) return;
+    if (this.sentSpeaking && this.client?.flags.includes('o')) this.markDirty('important');
   }
 
   // Dictation state travels to the addon in the snapshot (`dict`): listening,

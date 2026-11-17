@@ -837,6 +837,7 @@ test('the snapshot says whether the desktop voice is reading, and the last speec
   assert.deepEqual(b.buildSnapshot().speech, { on: undefined, cmd: 2 });
   b.onFrame(frame(4, [hello, ['C', 3, 'say', 'Again']]));
   await settle();
+  assert.ok(b.publishNow(), 'the addon hears the reading start');
   b.dirty = { important: false, minor: false, view: false };
   await new Promise((resolve) => b.voice.current.once('exit', resolve));
   assert.deepEqual(b.buildSnapshot().speech, { on: undefined, cmd: 3 }, 'done when the voice finishes');
@@ -890,6 +891,19 @@ test('with the window closed, the end of a reading waits for the next update ins
   b.voice.onSpeaking(false);
   assert.deepEqual(b.dirty, { important: false, minor: false, view: false });
   assert.equal(b.publishTimer, null, 'no update is due for it');
+});
+
+test("with the window open, a reading's start sends nothing of its own, nor does the end of one the addon never heard start", (t) => {
+  const { b } = fakeBridge();
+  t.after(() => b.stop());
+  b.onFrame(frame(1, [['H', 1, 'sess', 'ui1', 1, 1, 0, 'o', '', '0.1.0']]));
+  assert.ok(b.publishNow());
+  clearTimeout(b.publishTimer);
+  b.publishTimer = null;
+  b.voice.onSpeaking(true);
+  b.voice.onSpeaking(false);
+  assert.deepEqual(b.dirty, { important: false, minor: false, view: false });
+  assert.equal(b.publishTimer, null, 'an announcement read and done between updates costs none');
 });
 
 test('opening the window sends an update when a reading ended while it was closed, and only then', (t) => {
