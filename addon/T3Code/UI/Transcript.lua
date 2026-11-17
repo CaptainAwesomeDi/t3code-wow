@@ -17,27 +17,44 @@ local QUICK_REPLIES = {
 	"Try a different approach.",
 }
 
-local BODY_FONT = "GameFontHighlight"
 local PAD_X = 10
+local BLOCK_GAP = 6 -- air between a paragraph and the code block under it
 
 ---------------------------------------------------------------------------
 -- Measuring text so rows get the right height
 
 local measurer
-local BODY_SPACING = 2
+local capWidth, capFont
 
-local function Measure(text, width, font, spacing)
+local function Measurer()
 	if not measurer then
-		measurer = UIParent:CreateFontString(nil, "BACKGROUND", BODY_FONT)
+		measurer = UIParent:CreateFontString(nil, "BACKGROUND", "GameFontHighlight")
 		measurer:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -5000, 5000)
 		measurer:SetJustifyH("LEFT")
 		measurer:SetAlpha(0)
 	end
-	measurer:SetFontObject(font or BODY_FONT)
-	measurer:SetSpacing(spacing or 0)
-	measurer:SetWidth(width)
-	measurer:SetText(text)
-	return math.ceil(measurer:GetStringHeight())
+	return measurer
+end
+
+local function Measure(text, width, role)
+	local fs = Measurer()
+	ns.Fonts.Apply(fs, role or "body", text)
+	fs:SetWidth(width)
+	fs:SetJustifyH("LEFT")
+	fs:SetJustifyV("TOP")
+	fs:SetText(text or "")
+	return math.ceil(fs:GetStringHeight() or 0)
+end
+
+local function ContentHeight(text, width, note)
+	local blocks = ns.Fonts.Blocks(text)
+	local h = 0
+	for i, block in ipairs(blocks) do
+		if i > 1 then h = h + BLOCK_GAP end
+		local role = block.kind == "code" and "mono" or (note and "note" or "body")
+		h = h + Measure(block.text, width, role)
+	end
+	return h
 end
 
 function T:BodyWidth()
@@ -46,18 +63,95 @@ function T:BodyWidth()
 	return w - PAD_X * 2 - 26
 end
 
+-- The column a reply wraps in. A reading font keeps lines near 96 characters;
+-- the game font uses the full width, as it always has.
+function T:ReadingWidth(available)
+	available = available or self:BodyWidth()
+	if not ns.Fonts.Custom() then return available end
+	local choice = ns.Fonts.Choice()
+	if capFont ~= choice then capWidth, capFont = nil, choice end
+	if not capWidth then
+		local fs = Measurer()
+		local sample = "abcdefghijklmnopqrstuvwxyz"
+		ns.Fonts.Apply(fs, "body", sample)
+		fs:SetText(sample)
+		local w
+		if fs.GetUnboundedStringWidth then
+			local ok, got = pcall(fs.GetUnboundedStringWidth, fs)
+			if ok then w = got end
+		end
+		if not w or w < 1 then return available end
+		local cap = math.floor(w / #sample * ns.Fonts.LINE_CHARS)
+		if cap < 200 then return available end
+		capWidth = cap
+	end
+	if capWidth < available then return capWidth end
+	return available
+end
+
 ---------------------------------------------------------------------------
 -- Element initializers
 
+-- Stacked font strings: a reply is one face, and a fenced block is another.
+-- The scroll row recycles, so spare lines are hidden rather than thrown away.
+local function PlaceLines(frame, point, rel, relPoint, x, y, text, width, note)
+	local blocks = ns.Fonts.Blocks(text)
+	local lines = frame.Lines
+	if not lines then
+		lines = {}
+		frame.Lines = lines
+	end
+	local prev
+	for i, block in ipairs(blocks) do
+		local fs = lines[i]
+		if not fs then
+			fs = frame:CreateFontString(nil, "ARTWORK", note and "GameFontNormal" or "GameFontHighlight")
+			lines[i] = fs
+		end
+		fs:Show()
+		fs:ClearAllPoints()
+		if i == 1 then
+			fs:SetPoint(point, rel, relPoint, x, y)
+		else
+			fs:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -BLOCK_GAP)
+		end
+		local role = block.kind == "code" and "mono" or (note and "note" or "body")
+		ns.Fonts.Apply(fs, role, block.text)
+		fs:SetWidth(width)
+		fs:SetJustifyH("LEFT")
+		fs:SetJustifyV("TOP")
+		fs:SetText(ns.Theme.Markup(block.text))
+		prev = fs
+	end
+	for i = #blocks + 1, #lines do
+		lines[i]:Hide()
+		lines[i]:SetText("")
+	end
+	if note then frame.Text = lines[1] else frame.Body = lines[1] end
+	local h = 0
+	for i = 1, #blocks do
+		if i > 1 then h = h + BLOCK_GAP end
+		h = h + math.ceil(lines[i]:GetStringHeight() or 0)
+	end
+	return h
+end
+
+local function Grow(ed, needed)
+	if needed <= (ed.height or 0) + 1 then return end
+	ed.height = needed
+	if ed.fixKey then T.heightFix[ed.fixKey] = needed end
+	if T.reflowQueued then return end
+	T.reflowQueued = true
+	C_Timer.After(0, function()
+		T.reflowQueued = nil
+		T:Reflow()
+	end)
+end
+
 local function InitMessage(frame, ed)
-	if not frame.Body then
+	if not frame.Label then
 		frame.Label = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
 		frame.Label:SetPoint("TOPLEFT", PAD_X, -6)
-		frame.Body = frame:CreateFontString(nil, "ARTWORK", BODY_FONT)
-		frame.Body:SetPoint("TOPLEFT", frame.Label, "BOTTOMLEFT", 0, -4)
-		frame.Body:SetJustifyH("LEFT")
-		frame.Body:SetJustifyV("TOP")
-		frame.Body:SetSpacing(BODY_SPACING)
 		frame.Speak = UI.IconButton(frame, "voicechat-icon-speaker", 18, nil, nil)
 		frame.Speak.Background:Hide()
 		frame.Speak:SetPoint("TOPRIGHT", -6, -4)
@@ -72,48 +166,30 @@ local function InitMessage(frame, ed)
 	else
 		frame.Label:SetText(ns.Color("agent", "Agent") .. (m.live and ns.Color("grey", "  writing…") or ""))
 	end
-	frame.Body:SetWidth(T:BodyWidth())
-	frame.Body:SetText(ns.Theme.Markup(m.t))
+	local textH = PlaceLines(frame, "TOPLEFT", frame.Label, "BOTTOMLEFT", 0, -4, m.t, T:ReadingWidth(), false)
 	-- If the real text is taller than estimated (font or scale differences), grow the
 	-- row and lay the list out again rather than letting the next row overlap it.
-	local needed = 34 + math.ceil(frame.Body:GetStringHeight())
-	if needed > (ed.height or 0) + 1 then
-		ed.height = needed
-		T.heightFix[ed.fixKey] = needed
-		if not T.reflowQueued then
-			T.reflowQueued = true
-			C_Timer.After(0, function()
-				T.reflowQueued = nil
-				T:Reflow()
-			end)
-		end
-	end
+	Grow(ed, 34 + textH)
 	frame.Time:SetText(m.at and date("%H:%M", m.at) or "")
 	frame.Speak:SetShown(m.r == "a")
 	frame.Speak:SetScript("OnClick", function() ns.Speak(m.t, ns.viewId, m.n) end)
 end
 
 local function InitNote(frame, ed)
-	if not frame.Text then
+	if not frame.Icon then
 		frame.Icon = frame:CreateTexture(nil, "ARTWORK")
 		frame.Icon:SetSize(16, 16)
 		frame.Icon:SetPoint("TOPLEFT", PAD_X, -6)
-		frame.Text = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-		frame.Text:SetPoint("TOPLEFT", frame.Icon, "TOPRIGHT", 6, 0)
-		frame.Text:SetJustifyH("LEFT")
-		frame.Text:SetJustifyV("TOP")
 		frame.Anim = frame.Icon:CreateAnimationGroup()
 		local rot = frame.Anim:CreateAnimation("Rotation")
 		rot:SetDegrees(-360)
 		rot:SetDuration(1.4)
 		frame.Anim:SetLooping("REPEAT")
 	end
-	frame.Text:SetWidth(T:BodyWidth() - 22)
 	local text = ed.text
 	if ed.since then text = string.format("%s  |cff9d9d9d(%s)|r", text, ns.Duration(time() - ed.since)) end
-	frame.Text:SetText(ns.Theme.Markup(text))
-	local theme = ns.Theme.Get()
-	if theme then ns.Theme.SetText(frame.Text, theme.text) end
+	local textH = PlaceLines(frame, "TOPLEFT", frame.Icon, "TOPRIGHT", 6, 0, text, T:ReadingWidth(T:BodyWidth() - 22), true)
+	Grow(ed, 14 + math.max(16, textH))
 	local mark = ed.icon or "common-icon-forwardarrow"
 	if not UI.SetIcon(frame.Icon, mark, 16) then frame.Icon:SetAtlas(mark) end
 	if ed.spin then frame.Anim:Play() else frame.Anim:Stop() end
@@ -279,15 +355,16 @@ local function EchoArrived(echo, m)
 end
 
 local function MessageElement(msg, echo)
-	local width = T:BodyWidth()
-	local fixKey = math.floor(width) .. ":" .. msg.t
-	local height = math.max(34 + Measure(msg.t, width, BODY_FONT, BODY_SPACING), T.heightFix[fixKey] or 0)
+	local width = T:ReadingWidth()
+	local fixKey = ns.Fonts.Choice() .. ":" .. math.floor(width) .. ":" .. msg.t
+	local height = math.max(34 + ContentHeight(msg.t, width, false), T.heightFix[fixKey] or 0)
 	return { kind = "msg", msg = msg, echo = echo, height = height, fixKey = fixKey }
 end
 
 local function Note(text, icon, opts)
-	local width = T:BodyWidth() - 22
-	local e = { kind = "note", text = text, icon = icon, height = 14 + math.max(16, Measure(text, width, "GameFontNormal")) }
+	local width = T:ReadingWidth(T:BodyWidth() - 22)
+	local fixKey = "n:" .. ns.Fonts.Choice() .. ":" .. math.floor(width) .. ":" .. text
+	local e = { kind = "note", text = text, icon = icon, fixKey = fixKey, height = math.max(14 + math.max(16, ContentHeight(text, width, true)), T.heightFix[fixKey] or 0) }
 	if opts then for k, v in pairs(opts) do e[k] = v end end
 	return e
 end
@@ -499,6 +576,7 @@ function T:Refresh(force)
 	local key = table.concat({
 		tostring(ns.viewId), ns.Store.viewKey or "", ns.Main.mode, context,
 		echo and time() - echo.at < 120 and echo.at or 0, math.floor(self:BodyWidth()),
+		ns.Fonts.Choice(),
 	}, ":")
 	if key == self.key and not force then
 		self.scrollBox:ForEachFrame(function(frame, ed)

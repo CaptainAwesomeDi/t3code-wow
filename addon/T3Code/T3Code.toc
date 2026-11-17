@@ -19,6 +19,7 @@ Core\Init.lua
 Core\Transport.lua
 Core\Store.lua
 UI\Theme.lua
+UI\Fonts.lua
 UI\Templates.xml
 UI\Widgets.lua
 UI\MainFrame.lua

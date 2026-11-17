@@ -33,6 +33,27 @@ local function ChooseClear(value)
 	if ns.db.settings.theme == "modern" then ns.Main:ApplyOpacity() end
 end
 
+local READING = {
+	{ "inter", "Inter" },
+	{ "atkinson", "Atkinson" },
+	{ "game", "Game default" },
+}
+
+local function ReadingOptions()
+	local options = {}
+	for _, v in ipairs(READING) do
+		table.insert(options, { value = v[1], label = v[2] })
+	end
+	return options
+end
+
+local function ChooseReading(value)
+	ns.db.settings.readingFont = value
+	ns.Transcript.heightFix = {}
+	ns.Transcript:Refresh(true)
+end
+
+local READING_TIP = "Inter and Atkinson are drawn for paragraphs. Lines stay near a hundred characters, and code blocks use a fixed-width font. Chinese and Korean stay on the game's fonts."
 
 local CHECKS = {
 	{ section = "tracker", key = "tracker", label = "Show T3 Code in the tracker area", title = "Show in the tracker area", desc = "Lists what's running, what needs you, and what just finished.", after = function() ns.Tracker:Refresh() end },
@@ -168,6 +189,16 @@ function S:CreateClassic(page)
 	self.info:SetJustifyV("TOP")
 	self.info:SetSpacing(3)
 
+	-- The left column is already full, so this sits under the connection text.
+	local readLabel = UI.Text(page, "GameFontHighlight")
+	readLabel:SetPoint("TOPLEFT", self.info, "BOTTOMLEFT", 0, -18)
+	readLabel:SetText("Reading font")
+	local reading = UI.Dropdown(page, 240, ChooseReading)
+	reading:SetPoint("TOPLEFT", readLabel, "BOTTOMLEFT", 0, -6)
+	reading.tipBody = READING_TIP
+	reading:SetOptions(ReadingOptions(), ns.db.settings.readingFont or "inter")
+	self.reading = reading
+
 	local reload = UI.Button(page, "Reload UI", 130, function() ReloadUI() end)
 	reload:SetPoint("BOTTOMLEFT", 20, 16)
 	UI.Tooltip(reload, "Reload UI", "Frees up a fresh set of live updates. Does the same as typing /reload.")
@@ -182,7 +213,7 @@ function S:CreateClassic(page)
 	local report = UI.Button(page, "Report a problem", 150, function() ns.Main:ShowPage("threads") ns.Main:Report() end)
 	report:SetPoint("LEFT", selftest, "RIGHT", 10, 0)
 	UI.Tooltip(report, "Report a problem", "Puts diagnostics in the message box and attaches a screenshot, for the thread you have open (or a new one).")
-	self.controls = { dd, design, size, test, testNotice, reload, resetTracker, selftest, report }
+	self.controls = { dd, design, size, reading, test, testNotice, reload, resetTracker, selftest, report }
 end
 
 -- One setting row: a name, the line under it, a hairline, and the control on the right.
@@ -415,6 +446,10 @@ function S:CreateModern(page)
 		{ value = "xlarge", label = "Extra large" },
 	}, ns.db.settings.windowScale or "auto")
 
+	self.reading = ChoiceRow("window", "Reading font", "Clearer type for long replies, on a shorter line.", "reading font inter atkinson game default", 220, ChooseReading)
+	self.reading.tipBody = READING_TIP
+	self.reading:SetOptions(ReadingOptions(), ns.db.settings.readingFont or "inter")
+
 	self.accent = ChoiceRow("modern", "Accent", "Colors Start, the selected thread, and headings. Class color follows your class.", "accent class verdigris ice copper gold color modern", 220, ChooseAccent)
 	self.accent:SetOptions(AccentChoices(), ns.db.settings.accent or "class")
 
@@ -456,7 +491,7 @@ function S:CreateModern(page)
 	local report = UI.Button(body, "Report a problem", 150, function() ns.Main:ShowPage("threads") ns.Main:Report() end)
 	report:SetPoint("LEFT", selftest, "RIGHT", 6, 0)
 	UI.Tooltip(report, "Report a problem", "Puts diagnostics in the message box and attaches a screenshot, for the thread you have open (or a new one).")
-	for _, w in ipairs({ self.voice, self.design, self.accent, self.size, test, reload, resetTracker, selftest, report }) do
+	for _, w in ipairs({ self.voice, self.design, self.accent, self.size, self.reading, test, reload, resetTracker, selftest, report }) do
 		table.insert(self.controls, w)
 	end
 
@@ -511,7 +546,7 @@ end
 -- Drop the page's controls: the window is being rebuilt under another design.
 function S:Teardown()
 	self.page, self.checks, self.controls = nil, nil, nil
-	self.voice, self.size, self.design, self.accent, self.opacity, self.info = nil, nil, nil, nil, nil, nil
+	self.voice, self.size, self.design, self.accent, self.opacity, self.reading, self.info = nil, nil, nil, nil, nil, nil, nil
 	self.rows, self.nav, self.search, self.heading, self.subhead = nil, nil, nil, nil, nil
 	self.infoRow, self.content, self.empty, self.section = nil, nil, nil, nil
 end
@@ -545,6 +580,10 @@ function S:Refresh()
 		local clear = ns.db.settings.windowClear
 		if type(clear) ~= "number" then clear = 6 end
 		self.opacity:SetValue(clear, true)
+	end
+	if self.reading then
+		self.reading.value = ns.db.settings.readingFont or "inter"
+		self.reading:Update()
 	end
 	local T = ns.Transport
 	local b = ns.Store.data.bridge or {}

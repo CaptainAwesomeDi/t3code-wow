@@ -24,6 +24,28 @@ check(T3Code == ns, "namespace exported")
 
 Stub.Fire("ADDON_LOADED", "T3Code")
 check(ns.db and ns.db.session and #ns.db.session == 8, "saved variables initialised")
+check(ns.db.settings.readingFont == "inter", "replies start in the reading font")
+do
+	local split = ns.Fonts.Split
+	local function kinds(text)
+		local s = {}
+		for _, b in ipairs(split(text)) do s[#s + 1] = b.kind end
+		return table.concat(s, ",")
+	end
+	local code = "|cffa8c7fa  local x = 1|r"
+	check(kinds("Hello") == "prose", "prose stays one block")
+	check(kinds("Hello\n" .. code .. "\n\nAfter") == "prose,code,prose", "a fenced block splits out of the paragraph")
+	check(kinds("Use |cffa8c7fathem|r here") == "prose", "inline code stays in the paragraph")
+	check(ns.Fonts.ScriptPath("Hello", true) == nil, "latin text keeps the reading font")
+	check(ns.Fonts.ScriptPath(string.char(230, 145, 137), true) == "Fonts\\ARKai_T.ttf", "chinese text uses the client's font")
+	check(ns.Fonts.ScriptPath(string.char(237, 149, 156), true) == "Fonts\\2002.TTF", "korean text uses the client's font")
+	check(ns.Fonts.ScriptPath(string.char(208, 175), true) == nil, "cyrillic stays on a font that has it")
+	check(ns.Fonts.ScriptPath(string.char(208, 175), false) == "Fonts\\FRIZQT___CYR.TTF", "cyrillic uses the client's font when the reading font has none")
+	check(#ns.Fonts.Blocks("Hello\n" .. code) == 2, "the reading font splits code blocks")
+	ns.db.settings.readingFont = "game"
+	check(#ns.Fonts.Blocks("Hello\n" .. code) == 1, "the game font keeps a message in one block")
+	ns.db.settings.readingFont = "inter"
+end
 Stub.Fire("PLAYER_LOGIN")
 check(ns.Transport.slotCount == 600, "found 600 slots by binary search")
 check(ns.Store.applied == 1, "bootstrap slot applied")
