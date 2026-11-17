@@ -7,7 +7,7 @@
 // machine and `_from` saying which thread it came from (see `from`).
 
 import { EventEmitter } from 'node:events';
-import { T3Client, modelChoices, isDelegatedThread } from './t3.js';
+import { T3Client, modelChoices, belongsToParent } from './t3.js';
 import { remoteTokenProvider, remoteOriginProvider } from './envs.js';
 
 const SEP = '~';
@@ -178,7 +178,7 @@ export class Fleet extends EventEmitter {
       local: e.local || undefined,
       state: e.client.state,
       error: e.client.error || undefined,
-      threads: [...e.client.threads.values()].filter((t) => !isDelegatedThread(t)).length,
+      threads: [...e.client.threads.values()].filter((t) => !belongsToParent(t)).length,
     }));
   }
 

@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto';
 import { RS, US } from './codec.js';
 import { StripCapture } from './capture.js';
 import { SlotBank, replaceFile, FileInUse } from './slots.js';
-import { threadStatus, isUnread, effortOf, waitingOn, isRunning, isDelegatedThread } from './t3.js';
+import { threadStatus, isUnread, effortOf, waitingOn, isRunning, belongsToParent } from './t3.js';
 import { Fleet } from './fleet.js';
 import { threadFamily } from './family.js';
 import { tokenProvider } from './auth.js';
@@ -861,7 +861,7 @@ export class Bridge {
   busyKids(t) {
     let n = 0;
     for (const k of this.t3.threads.values()) {
-      if (k.lineage?.parentThreadId === t.id && (isRunning(k) || waitingOn(k))) n++;
+      if (k.lineage?.parentThreadId === t.id && belongsToParent(k) && (isRunning(k) || waitingOn(k))) n++;
     }
     return n;
   }
@@ -877,7 +877,7 @@ export class Bridge {
       else if (ACTIVE.has(status)) this.refreshView(t.id);
       if (before !== status) {
         this.markDirty('important');
-        if (isDelegatedThread(t)) return; // no announcements for subagent threads
+        if (belongsToParent(t)) return; // no announcements for subagent threads
         // A snoozed thread stays quiet: the player asked not to hear about it yet.
         if (status === 'snoozed') return;
         if (BUSY.has(before) && !BUSY.has(status)) this.announce(t, status);
@@ -954,7 +954,7 @@ export class Bridge {
     let threads = [...t3.threads.values()]
       .map((t) => ({ t, s: this.statusOf(t) }))
       // Subagent threads only while they're busy, like T3's own sidebar.
-      .filter(({ t, s }) => s !== 'archived' && (!isDelegatedThread(t) || ACTIVE.has(s) || s === 'waiting'));
+      .filter(({ t, s }) => s !== 'archived' && (!belongsToParent(t) || ACTIVE.has(s) || s === 'waiting'));
     threads.sort((a, b) => ORDER[a.s] - ORDER[b.s] || Date.parse(b.t.updatedAt) - Date.parse(a.t.updatedAt));
     let settled = 0;
     threads = threads.filter(({ s }) => s !== 'settled' || ++settled <= 30).slice(0, 90);
@@ -1385,7 +1385,7 @@ export class Bridge {
       version: VERSION,
       pid: process.pid,
       at: new Date().toISOString(),
-      t3: { state: this.t3.state, error: this.t3.error, threads: [...this.t3.threads.values()].filter((t) => !isDelegatedThread(t)).length, origin: this.t3.origin, environments: this.t3.environments() },
+      t3: { state: this.t3.state, error: this.t3.error, threads: [...this.t3.threads.values()].filter((t) => !belongsToParent(t)).length, origin: this.t3.origin, environments: this.t3.environments() },
       wow: this.proc ? { pid: this.proc.pid } : null,
       capture: { state: this.captureState, backend: this.capture.resolveBackend(), ...this.capture.stats, lastError: this.capture.lastError },
       addon: this.client
