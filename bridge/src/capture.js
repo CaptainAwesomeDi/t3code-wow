@@ -436,10 +436,17 @@ export class StripCapture {
       const r = this.manualRegion || { x: 0, y: 0 };
       // maim reads just this rectangle; ImageMagick imports the root before
       // cropping, which can stall games on large, multi-monitor X11 desktops.
-      if (which('maim')) {
+      if (which('maim') && !this.maimFailed) {
         const offset = (n) => `${n < 0 ? '' : '+'}${n}`;
-        const buf = await run('maim', ['-u', '-g', `${px.width}x${px.height}${offset(r.x)}${offset(r.y)}`, '-f', 'bmp']);
-        return { status: 'ok', image: parseBMP(buf) };
+        try {
+          const buf = await run('maim', ['-u', '-g', `${px.width}x${px.height}${offset(r.x)}${offset(r.y)}`, '-f', 'bmp']);
+          return { status: 'ok', image: parseBMP(buf) };
+        } catch (err) {
+          if (!which('import')) throw err;
+          // maim before 5.7.3 can't write BMP: use ImageMagick from now on.
+          this.maimFailed = true;
+          this.log(`maim failed (${err.message.split('\n')[0]}); capturing with ImageMagick instead`);
+        }
       }
       const buf = await run('import', [
         '-limit', 'thread', '1', '-silent', '-window', 'root',
