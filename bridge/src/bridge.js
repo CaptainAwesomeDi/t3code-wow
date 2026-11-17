@@ -530,8 +530,10 @@ export class Bridge {
     c.encrypted = sealed;
     if (c.flags !== hello.flags) {
       const wasQuiet = c.flags.includes('q');
+      const opened = !c.flags.includes('o') && hello.flags.includes('o');
       c.flags = hello.flags;
-      this.markDirty('minor');
+      // A reading that ended while the window was closed: its speaker is still red.
+      this.markDirty(opened && this.sentSpeaking && !this.voice.speaking ? 'important' : 'minor');
       // Out of combat / a quiet instance: read the held announcement now.
       if (wasQuiet && !c.flags.includes('q') && this.deferredAnnounce) {
         const { thread, status } = this.deferredAnnounce;
@@ -728,7 +730,8 @@ export class Bridge {
   // A reading's start goes out with the update for the command that started it. Its
   // end only matters to the speaker button in the window, so it goes out like a
   // status change while the window is open. Otherwise nothing is sent for it: each
-  // update is built when it goes, so the next one says the reading ended.
+  // update is built when it goes, so the next one says the reading ended, and opening
+  // the window sends one if the speaker would still be red.
   onSpeaking() {
     if (!this.stopped && this.client?.flags.includes('o')) this.markDirty('important');
   }
@@ -1369,6 +1372,7 @@ export class Bridge {
       this.log(`publish recovered after ${count} failed ${count === 1 ? 'try' : 'tries'} (${((Date.now() - since) / 1000).toFixed(1)}s)`);
     }
     for (const r of this.results) r.sent = true;
+    this.sentSpeaking = !!snapshot.speech.on;
     this.lastGen = gen;
     this.persist.gen = gen;
     this.lastDigest = digest;

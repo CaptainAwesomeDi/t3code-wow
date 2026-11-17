@@ -892,6 +892,32 @@ test('with the window closed, the end of a reading waits for the next update ins
   assert.equal(b.publishTimer, null, 'no update is due for it');
 });
 
+test('opening the window sends an update when a reading ended while it was closed, and only then', (t) => {
+  const { b } = fakeBridge();
+  t.after(() => b.stop());
+  let speaking = true;
+  Object.defineProperty(b.voice, 'speaking', { get: () => speaking });
+  const hello = (flags) => ['H', 1, 'sess', 'ui1', 1, 1, 0, flags, '', '0.1.0'];
+  const clean = () => {
+    clearTimeout(b.publishTimer);
+    b.publishTimer = null;
+    b.dirty = { important: false, minor: false, view: false };
+  };
+  b.onFrame(frame(1, [hello('')]));
+  assert.ok(b.publishNow(), 'the addon hears the reading start');
+  clean();
+  speaking = false;
+  b.voice.onSpeaking(false);
+  b.onFrame(frame(2, [hello('o')]));
+  assert.ok(b.dirty.important, 'the speaker would still be red');
+  assert.ok(b.publishNow());
+  clean();
+  b.onFrame(frame(3, [hello('')]));
+  clean();
+  b.onFrame(frame(4, [hello('o')]));
+  assert.deepEqual(b.dirty, { important: false, minor: true, view: false }, 'the addon already knows it ended');
+});
+
 test('missing dictation explains itself in platform terms', () => {
   const { b } = fakeBridge();
   b.voice.canOmarchyDictate = () => false;
