@@ -32,6 +32,9 @@ local CELL = 3 -- physical pixels per strip square
 -- 34 pixels, and still where older bridges look for the strip.
 local INSET = 9
 local SIGNAL_POLL = 0.5
+-- While a slot that brought nothing new makes us wait, probe less often: a bell held open
+-- by our probes is one the bridge can't empty on Windows, which would hold up its next update.
+local WAITING_POLL = 2
 local MIN_LOAD_GAP = 0.6
 local SHOW_FOR = 20 -- seconds a strip stays up without an acknowledgement
 local RETRY_AFTER = { 15, 30, 60, 120 }
@@ -288,6 +291,9 @@ end
 
 function T:Touch()
 	self.lastTouchAt = GetTime()
+	-- A strip going up starts the clock, so time it spent hidden (minimised, a loading
+	-- screen) doesn't count as the bridge failing to answer.
+	if not self.stripShown then self.unansweredSince = GetTime() end
 	self.unansweredSince = self.unansweredSince or GetTime()
 	self.stripSeq = (self.stripSeq + 1) % 65536
 	self.showSince = nil
@@ -582,7 +588,8 @@ function T:OnUpdate(elapsed)
 			end
 		else
 			elapsedSinceSignal = elapsedSinceSignal + elapsed
-			if elapsedSinceSignal >= SIGNAL_POLL then
+			local waiting = self.ringCooldownUntil and GetTime() < self.ringCooldownUntil
+			if elapsedSinceSignal >= (waiting and WAITING_POLL or SIGNAL_POLL) then
 				elapsedSinceSignal = 0
 				-- Listen a few bells ahead, so one rung out of order can't strand us.
 				local sig = ns.db.sigNext or 1
