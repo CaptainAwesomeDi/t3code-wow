@@ -84,6 +84,7 @@ function S:CreateClassic(page)
 
 	local y = -48
 	self.checks = {}
+	local testNotice
 	for _, c in ipairs(CHECKS) do
 		local cb = CreateFrame("CheckButton", nil, page, "UICheckButtonTemplate")
 		cb.Text:SetFontObject("GameFontHighlight")
@@ -100,16 +101,21 @@ function S:CreateClassic(page)
 		cb.Text:SetWordWrap(false)
 		if c.tip then UI.Tooltip(cb, c.label, c.tip) end
 		table.insert(self.checks, cb)
+		if c.key == "toasts" then
+			-- Beside its own setting, so the page keeps the height it had.
+			local w = math.min(cb.Text:GetStringWidth() or 0, 340)
+			cb.Text:SetWidth(w)
+			testNotice = UI.Button(page, "Test", 70, function() ns.Toasts:Preview() end)
+			testNotice:SetPoint("LEFT", cb.Text, "LEFT", w + 12, 0)
+			UI.Tooltip(testNotice, "Test notice", "Shows a sample of the popup.")
+		end
 		y = y - 28
 	end
 
-	local testNotice = UI.Button(page, "Test notice", 120, function() ns.Toasts:Preview() end)
-	testNotice:SetPoint("TOPLEFT", 22, y - 6)
-	UI.Tooltip(testNotice, "Test notice", "Shows a sample of the popup.")
-	y = y - 40
-
+	-- The page is 554 tall at the default size and the buttons along the bottom
+	-- start at 516: three rows of 34 below the checkboxes end at 503.
 	local voiceLabel = UI.Text(page, "GameFontHighlight")
-	voiceLabel:SetPoint("TOPLEFT", 22, y - 12)
+	voiceLabel:SetPoint("TOPLEFT", 22, y - 10)
 	voiceLabel:SetText("Voice for reading aloud")
 	local dd = UI.Dropdown(page, 240, function(value)
 		ns.db.settings.tts = value
@@ -125,10 +131,10 @@ function S:CreateClassic(page)
 		ns.Speak("Hello from T3 Code. This is how replies will sound.", "", "test")
 	end)
 	test:SetPoint("LEFT", dd, "RIGHT", 10, 0)
-	y = y - 40
+	y = y - 34
 
 	local designLabel = UI.Text(page, "GameFontHighlight")
-	designLabel:SetPoint("TOPLEFT", 22, y - 12)
+	designLabel:SetPoint("TOPLEFT", 22, y - 10)
 	designLabel:SetText("Design")
 	local design = UI.Dropdown(page, 240, function(value)
 		ns.db.settings.theme = value
@@ -140,10 +146,10 @@ function S:CreateClassic(page)
 		{ value = "modern", label = "Modern (flat, dark)" },
 	}, ns.db.settings.theme or "classic")
 	self.design = design
-	y = y - 40
+	y = y - 34
 
 	local sizeLabel = UI.Text(page, "GameFontHighlight")
-	sizeLabel:SetPoint("TOPLEFT", 22, y - 12)
+	sizeLabel:SetPoint("TOPLEFT", 22, y - 10)
 	sizeLabel:SetText("Window size")
 	local size = UI.Dropdown(page, 240, function(value)
 		ns.db.settings.windowScale = value

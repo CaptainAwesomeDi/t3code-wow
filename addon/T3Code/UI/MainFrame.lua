@@ -30,7 +30,8 @@ M.BAR_KEYS = { "Refresh", "New", "Back", "Stop", "Mic", "Speak", "Shot", "Insert
 -- time. Made after the button bar so its corner sits on top of it.
 local function CreateResizeGrip(f)
 	f:SetResizable(true)
-	if f.SetResizeBounds then f:SetResizeBounds(MIN_W, MIN_H) end
+	local minW, minH = M:MinSize()
+	if f.SetResizeBounds then f:SetResizeBounds(minW, minH) end
 	local grip = CreateFrame("Frame", nil, f)
 	grip:SetSize(16, 16)
 	grip:SetPoint("BOTTOMRIGHT", -2, 2)
@@ -40,7 +41,7 @@ local function CreateResizeGrip(f)
 	grip:SetScript("OnDragStop", function()
 		f:StopMovingOrSizing()
 		local w, h = f:GetWidth(), f:GetHeight()
-		w, h = math.max(MIN_W, math.floor(w)), math.max(MIN_H, math.floor(h))
+		w, h = math.max(minW, math.floor(w)), math.max(minH, math.floor(h))
 		f:SetSize(w, h)
 		ns.db.settings.windowSize = { w, h }
 	end)
@@ -65,6 +66,13 @@ local function CreateResizeGrip(f)
 		grip:SetScript("OnLeave", function() mark:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up") end)
 	end
 	f.ResizeGrip = grip
+end
+
+-- The modern window can shrink. The classic pages are laid out for the default
+-- size and don't scroll, so the game's frame only grows.
+function M:MinSize()
+	if Theme.Get() then return MIN_W, MIN_H end
+	return WIDTH, HEIGHT
 end
 
 ---------------------------------------------------------------------------
@@ -122,7 +130,8 @@ function M:Create()
 	f:SetSize(WIDTH, HEIGHT)
 	local savedSize = ns.db.settings.windowSize
 	if savedSize then
-		f:SetSize(math.max(MIN_W, savedSize[1] or WIDTH), math.max(MIN_H, savedSize[2] or HEIGHT))
+		local minW, minH = self:MinSize()
+		f:SetSize(math.max(minW, savedSize[1] or WIDTH), math.max(minH, savedSize[2] or HEIGHT))
 	end
 	f:SetPoint("CENTER", 0, 20)
 	f:SetFrameStrata("HIGH")
