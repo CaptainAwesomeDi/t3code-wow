@@ -1298,7 +1298,7 @@ do
 	ns.Settings.design:Step(1)
 	local f = ns.Main.frame
 	check(f ~= old and ns.db.settings.theme == "modern", "choosing modern in the design dropdown rebuilds the window")
-	check(ns.db.settings.accent == "verdigris" and ns.Theme.ACCENT_HEX == "ff7fd2b3", "the accent starts on verdigris")
+	check(ns.db.settings.accent == "class" and ns.Theme.ACCENT_HEX == "ff7fd2b3", "the accent defaults to class color, and verdigris until the class is known")
 	check(ns.Color("gold", "Start") == "|c" .. ns.Theme.ACCENT_HEX .. "Start|r", "a heading uses the accent instead of the game's gold")
 	check(ns.Theme.Markup("|cffffd100Plan|r and |cffff4040no|r") == "|c" .. ns.Theme.ACCENT_HEX .. "Plan|r and |cffff4040no|r", "only the game's gold in a message becomes the accent")
 	local printed = #Stub.printed
@@ -1312,7 +1312,28 @@ do
 	local ground, accent, panel = theme.windowBg, theme.accent, theme.panel
 	local hairline, muted, text, onAccent = theme.hairline, theme.muted, theme.text, theme.onAccent
 	check(f.ModernBg._color[1] == ground[1] and f.ModernBg._color[2] == ground[2] and f.ModernBg._color[3] == ground[3], "the modern ground is painted")
-	check(f.ModernBg._color[4] == 1, "the window is a flat navy, with no dark band")
+	check(math.abs(f.ModernBg._color[4] - 0.94) < 0.001, "the window starts at the dusk transparency")
+	do
+		local savedView = ns.Store.data.view
+		ns.Store.data.view = {
+			id = ns.viewId,
+			msgs = {
+				{ r = "u", t = "hello", at = 1, n = 1 },
+				{ r = "a", t = "hi", at = 2, n = 2, live = true },
+			},
+		}
+		ns.Transcript:Refresh(true)
+		local youLabel, agentLabel
+		for _, r in ipairs(ns.Transcript.scrollBox._rows or {}) do
+			if r.ed and r.ed.kind == "msg" and r.frame and r.frame.Label then
+				if r.ed.msg.r == "u" then youLabel = r.frame.Label:GetText() else agentLabel = r.frame.Label:GetText() end
+			end
+		end
+		check(youLabel == ns.Color("gold", "You"), "a player's line is labeled You")
+		check(agentLabel == ns.Color("agent", "Agent") .. ns.Color("grey", "  writing…"), "a live reply is labeled Agent")
+		ns.Store.data.view = savedView
+		ns.Transcript:Refresh(true)
+	end
 	check(f.TopTileStreaks and f.TopTileStreaks._shown == false and f.TitleBg and f.TitleBg._shown == false, "the template's black streaks are hidden")
 	check(not f.ModernRim, "the gold top trim is gone")
 	local rules = 0
@@ -1320,7 +1341,7 @@ do
 		if rgba(r._color, hairline) and (r._w == 1 or r._h == 1) then rules = rules + 1 end
 	end
 	check(rules >= 4, "the window has a hairline border")
-	check(f.ModernBand._color[1] == ground[1] and f.ModernBand._color[4] == 1, "the title is the same navy")
+	check(f.ModernBand._color[1] == ground[1] and f.ModernBand._color[4] == f.ModernBg._color[4], "the title is the same navy")
 	local titleAt = f.Subtitle._points and f.Subtitle._points[1]
 	local statusAt = f.Status._points and f.Status._points[1]
 	check(titleAt and titleAt[1] == "LEFT" and titleAt[2] == f.ModernTitle, "the thread name sits in the title band")
@@ -1365,7 +1386,7 @@ do
 	check(notice.Bar and notice.Bar._shown ~= false and rgba(notice.Bar._color, accent), "a notice carries the accent bar")
 	check(notice.Edge and notice.Edge[1]._shown ~= false and rgba(notice.Edge[1]._color, hairline), "a notice has a hairline around it")
 	check(rgba(notice._backdropColor, theme.windowBg) and theme.windowBg[4] < 1, "a notice uses the window's translucent ground")
-	check(rgba(notice.Title._textColor, text) and notice.Title._shadow[1] == 0, "a notice title is flat, not the game's gold")
+	check(rgba(notice.Title._textColor, accent) and notice.Title._shadow[1] == 0, "a notice title uses the accent")
 	check(notice.Text:GetText():find("Finished", 1, true) and not notice.Text:GetText():find("ff1eff00", 1, true), "a finished notice keeps the status quiet")
 	check(ns.Settings.checks[1].Fill ~= nil and ns.Settings.checks[1].Sync ~= nil, "modern settings use a drawn switch")
 	local search = ns.ThreadList.search
@@ -1423,7 +1444,10 @@ do
 	check(ns.db.settings.tracker == true, "clicking the switch again turns it back on")
 	check(sw.Fill._points[#sw.Fill._points][1] == "RIGHT" and rgba(sw.Switch._regions[1]._vertex, accent), "the thumb returns to the right when the switch is on")
 	ns.db.settings.tracker = trackerOn
-	check(ns.Settings.nav and #ns.Settings.nav == 6, "modern settings lists its sections")
+	check(ns.Settings.nav and #ns.Settings.nav == 7, "modern settings lists its sections")
+	local modernTab = false
+	for _, b in ipairs(ns.Settings.nav) do if b.id == "modern" and b.Text:GetText() == "Modern" then modernTab = true end end
+	check(modernTab, "modern settings has a Modern page")
 	check(ns.Settings.heading:GetText() == "Notices", "settings open on Notices")
 	for _, b in ipairs(ns.Settings.nav) do if b.id == "voice" then b:Click() end end
 	check(ns.Settings.heading:GetText() == "Voice", "a section opens its page")
@@ -1528,6 +1552,11 @@ do
 		if r.ed.thread and r.ed.thread.s == "settled" then settledRow = r.frame end
 	end
 	check(group and group.Icon._texture:find("icons\\", 1, true) and painted(group, hairline), "a group header is a hairline and a line icon")
+	local liveRow
+	for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
+		if r.ed.thread and r.ed.thread.s == "working" then liveRow = r.frame end
+	end
+	check(liveRow and rgba(liveRow.Title._textColor, accent), "a thread's name in the list uses the accent")
 	check(settledRow and rgba(settledRow.Title._textColor, muted), "a settled thread's title is muted")
 	ns.db.settings.collapsed.settled = savedCollapsed
 	ns.Store.data.threads = needThreads
@@ -1590,20 +1619,65 @@ do
 	ns.Main:ShowPage("settings")
 	for _, b in ipairs(ns.Settings.nav) do if b.id == "window" then b:Click() end end
 	check(ns.Settings.heading:GetText() == "Window", "settings can open on Window")
-	check(ns.Settings.accent and ns.Settings.accent.value == "verdigris", "settings lists the accent, starting on verdigris")
+	check(not ns.Settings.accent:GetParent():IsShown() and not ns.Settings.opacity:GetParent():IsShown(), "the window page leaves out accent and transparency")
+	for _, b in ipairs(ns.Settings.nav) do if b.id == "modern" then b:Click() end end
+	check(ns.Settings.heading:GetText() == "Modern" and ns.Settings.accent:GetParent():IsShown() and ns.Settings.opacity:GetParent():IsShown(), "accent and transparency are on the Modern page")
+	check(ns.Settings.opacity:GetValue() == 6 and ns.Settings.opacity.Text:GetText() == "6%" and math.abs(ns.Main.frame.ModernBg._color[4] - 0.94) < 0.001, "transparency starts at the dusk ground")
+	ns.Settings.opacity:SetValue(40)
+	check(ns.db.settings.windowClear == 40 and ns.Settings.opacity.Text:GetText() == "40%" and math.abs(ns.Main.frame.ModernBg._color[4] - 0.6) < 0.001 and math.abs(ns.Main.frame.ModernBand._color[4] - 0.6) < 0.001, "the transparency slider lets the world through the modern window")
+	ns.Settings.opacity:SetValue(0)
+	check(ns.db.settings.windowClear == 0 and ns.Main.frame.ModernBg._color[4] == 1, "solid puts the window back")
+	ns.db.settings.windowClear = 250
+	ns.Main:ApplyOpacity()
+	check(ns.Main.frame.ModernBg._color[4] == 0, "transparency stops at fully clear")
+	ns.db.settings.windowClear = -5
+	ns.Main:ApplyOpacity()
+	check(ns.Main.frame.ModernBg._color[4] == 1, "transparency stops at solid")
+	ns.db.settings.windowClear = nil
+	ns.Main:ApplyOpacity()
+	check(math.abs(ns.Main.frame.ModernBg._color[4] - 0.94) < 0.001, "a missing transparency uses the dusk ground")
+	ns.Settings.opacity:SetValue(100)
+	ns.Settings.opacity:GetScript("OnMouseWheel")(ns.Settings.opacity, 1)
+	check(ns.Settings.opacity:GetValue() == 100 and ns.db.settings.windowClear == 100, "the wheel won't pass fully clear")
+	ns.Settings.opacity:SetValue(0)
+	ns.Settings.opacity:GetScript("OnMouseWheel")(ns.Settings.opacity, -1)
+	check(ns.Settings.opacity:GetValue() == 0, "the wheel won't pass solid")
+	ns.Settings.opacity:SetValue(6)
+	check(ns.db.settings.windowClear == 6 and math.abs(ns.Main.frame.ModernBg._color[4] - 0.94) < 0.001, "the slider can return to the dusk ground")
+	ns.Settings.search:SetText("transparency")
+	ns.Settings.search:GetScript("OnTextChanged")(ns.Settings.search)
+	check(ns.Settings.opacity:GetParent():IsShown() and not ns.Settings.design:GetParent():IsShown(), "searching transparency finds it, and not the design")
+	ns.Settings.search:SetText("")
+	ns.Settings.search:GetScript("OnTextChanged")(ns.Settings.search)
+	check(ns.Settings.accent and ns.Settings.accent.value == "class" and ns.Settings.accent.Text:GetText() == "Class color", "settings lists the accent, starting on class color")
+	ns.Settings.accent.value = "verdigris"
 	local beforeAccent = ns.Main.frame
 	ns.Settings.accent:Step(1)
 	check(ns.Main.frame ~= beforeAccent and ns.db.settings.accent == "ice" and ns.Theme.ACCENT_HEX == "ff74c6de" and painted(ns.Main.frame.Bar.Send, ns.Theme.MODERN.accent), "picking the next accent repaints Start")
-	check(ns.Settings.section == "window" and ns.Settings.heading:GetText() == "Window", "picking an accent stays on the open settings section")
-	check(sample.payload and rgba(sample.Bar._color, ns.Theme.MODERN.accent), "the open notice takes the new accent")
+	check(ns.Settings.section == "modern" and ns.Settings.heading:GetText() == "Modern", "picking an accent stays on the Modern page")
+	check(sample.payload and rgba(sample.Bar._color, ns.Theme.MODERN.accent) and rgba(sample.Title._textColor, ns.Theme.MODERN.accent), "the open notice takes the new accent")
+	local named
+	for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
+		if r.ed.thread and r.ed.thread.s ~= "settled" and r.ed.thread.s ~= "snoozed" then named = r.frame break end
+	end
+	check(named and rgba(named.Title._textColor, ns.Theme.MODERN.accent), "a thread name in the list takes the new accent")
 	ns.Theme.UseAccent("nope")
 	check(ns.Theme.ACCENT_HEX == "ff7fd2b3" and ns.Theme.MODERN.accent[1] == ns.Theme.ACCENTS[1].rgb[1], "an unknown accent is verdigris")
+	UnitClass = function() return "Hunter", "HUNTER" end
+	ns.Theme.UseAccent("class")
+	check(ns.Theme.MODERN.accent[1] == 0.67 and ns.Theme.MODERN.accent[2] == 0.83 and ns.Theme.MODERN.accent[3] == 0.45 and ns.Theme.ClassAccent().label == "Class color (Hunter)", "class color uses the player's class")
+	RAID_CLASS_COLORS = { HUNTER = { r = 0.2, g = 0.4, b = 0.6 } }
+	ns.Theme.UseAccent("class")
+	check(ns.Theme.MODERN.accent[1] == 0.2 and ns.Theme.ACCENT_HEX == "ff336699", "a changed class color wins over the built-in one")
+	RAID_CLASS_COLORS = nil
+	UnitClass = nil
 	ns.db.settings.accent = "verdigris"
 	ns.Theme.UseAccent("verdigris")
 	ns.Main:ShowPage(page)
 	ns.Settings.design:Step(-1)
 	local f3 = ns.Main.frame
 	check(f3 ~= f and not f3.ModernBg and ns.db.settings.theme == "classic", "choosing classic in the design dropdown rebuilds the game's window")
+	check(ns.Settings.design and ns.Settings.size and not ns.Settings.accent and not ns.Settings.opacity, "classic settings keep design and size, and leave out accent and transparency")
 	check(ns.Color("gold", "Start") == "|cffffd100Start|r" and ns.Theme.Markup("|cffffd100Plan|r") == "|cffffd100Plan|r", "classic headings stay the game's gold")
 	check(f3._w == 1100 and f3._h == 700, "the resized size carries across the design switch")
 	check(f3.ResizeGrip ~= nil, "the classic window resizes too")
@@ -1612,16 +1686,16 @@ do
 	check(tf.Lines[1].Sub:GetText():find("^- ", 1) ~= nil, "classic status keeps the tracker dash")
 	check(tf.Lines[1].Dot._shown ~= false, "the classic tracker dot is back")
 	check(notice.Bar._shown == false and notice._backdrop and notice._backdrop.edgeFile ~= nil, "a notice goes back to the gold border")
+	check(rgba(notice.Title._textColor, { 1, 0.82, 0, 1 }), "a notice title goes back to the game's gold")
+	local classicName
+	for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
+		if r.ed.thread and r.ed.thread.s ~= "settled" and r.ed.thread.s ~= "snoozed" then classicName = r.frame break end
+	end
+	check(classicName and rgba(classicName.Title._textColor, { 1, 0.82, 0, 1 }), "a thread name in the list goes back to the game's gold")
 	ns.Store.data.threads = savedTrackerThreads
 	ns.Tracker:Refresh()
 	check(f3.NineSlice and f3.NineSlice._shown ~= false, "the game's ornate border is back")
 	check(f3.TopTileStreaks and f3.TopTileStreaks._shown ~= false and f3.TitleBg._shown ~= false, "the classic frame keeps its title streaks")
-	local classicFrame = ns.Main.frame
-	ns.Settings.accent:Step(1)
-	check(ns.db.settings.accent == "ice" and ns.db.settings.theme == "classic" and ns.Main.frame == classicFrame, "choosing an accent on the classic look stores it and leaves the window")
-	ns.db.settings.accent = "verdigris"
-	ns.Settings.accent.value = "verdigris"
-	ns.Settings.accent:Update()
 	check(f3:IsShown() and ns.Main.page == page, "still open on the same page after switching back")
 	ns.Main:ShowPage("settings")
 	check(ns.Settings.design.value == "classic", "the design dropdown follows the setting")

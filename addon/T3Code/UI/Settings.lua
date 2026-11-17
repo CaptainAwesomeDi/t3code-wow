@@ -12,7 +12,7 @@ ns.Settings = S
 
 local function AccentChoices()
 	local options = {}
-	for _, a in ipairs(Theme.ACCENTS) do
+	for _, a in ipairs(Theme.Accents()) do
 		table.insert(options, { value = a.value, label = a.label })
 	end
 	return options
@@ -22,6 +22,17 @@ local function ChooseAccent(value)
 	ns.db.settings.accent = value
 	if ns.db.settings.theme == "modern" then ns.Main:ApplyTheme() end
 end
+
+local function ClearText(value)
+	if not value or value <= 0 then return "Solid" end
+	return value .. "%"
+end
+
+local function ChooseClear(value)
+	ns.db.settings.windowClear = value
+	if ns.db.settings.theme == "modern" then ns.Main:ApplyOpacity() end
+end
+
 
 local CHECKS = {
 	{ section = "tracker", key = "tracker", label = "Show T3 Code in the tracker area", title = "Show in the tracker area", desc = "Lists what's running, what needs you, and what just finished.", after = function() ns.Tracker:Refresh() end },
@@ -45,6 +56,7 @@ local SECTIONS = {
 	{ id = "threads", label = "Threads", title = "Threads", blurb = "What a message does, and where a new thread starts." },
 	{ id = "voice", label = "Voice", title = "Voice", blurb = "Reading replies aloud, and dictation." },
 	{ id = "window", label = "Window", title = "Window", blurb = "Where the window shows up, and which design it uses." },
+	{ id = "modern", label = "Modern", title = "Modern", blurb = "Accent and transparency for this flat window." },
 	{ id = "connection", label = "Connection", title = "Connection", blurb = "The link between the game and T3 Code." },
 }
 
@@ -130,16 +142,6 @@ function S:CreateClassic(page)
 	self.design = design
 	y = y - 40
 
-	local accentLabel = UI.Text(page, "GameFontHighlight")
-	accentLabel:SetPoint("TOPLEFT", 22, y - 12)
-	accentLabel:SetText("Accent")
-	local accent = UI.Dropdown(page, 240, ChooseAccent)
-	accent:SetPoint("LEFT", accentLabel, "RIGHT", 16, 0)
-	accent.tipBody = "Colors Start, the selected thread, and headings in the modern window."
-	accent:SetOptions(AccentChoices(), ns.db.settings.accent or "verdigris")
-	self.accent = accent
-	y = y - 40
-
 	local sizeLabel = UI.Text(page, "GameFontHighlight")
 	sizeLabel:SetPoint("TOPLEFT", 22, y - 12)
 	sizeLabel:SetText("Window size")
@@ -180,7 +182,7 @@ function S:CreateClassic(page)
 	local report = UI.Button(page, "Report a problem", 150, function() ns.Main:ShowPage("threads") ns.Main:Report() end)
 	report:SetPoint("LEFT", selftest, "RIGHT", 10, 0)
 	UI.Tooltip(report, "Report a problem", "Puts diagnostics in the message box and attaches a screenshot, for the thread you have open (or a new one).")
-	self.controls = { dd, design, accent, size, test, testNotice, reload, resetTracker, selftest, report }
+	self.controls = { dd, design, size, test, testNotice, reload, resetTracker, selftest, report }
 end
 
 -- One setting row: a name, the line under it, a hairline, and the control on the right.
@@ -402,9 +404,6 @@ function S:CreateModern(page)
 		{ value = "modern", label = "Modern (flat, dark)" },
 	}, ns.db.settings.theme or "classic")
 
-	self.accent = ChoiceRow("window", "Accent", "Colors Start, the selected thread, and headings.", "accent verdigris ice copper gold color", 220, ChooseAccent)
-	self.accent:SetOptions(AccentChoices(), ns.db.settings.accent or "verdigris")
-
 	self.size = ChoiceRow("window", "Window size", "Automatic grows the window while a controller is in use.", "window size automatic normal large", 220, function(value)
 		ns.db.settings.windowScale = value
 		ns.Main:ApplyScale()
@@ -415,6 +414,19 @@ function S:CreateModern(page)
 		{ value = "large", label = "Large" },
 		{ value = "xlarge", label = "Extra large" },
 	}, ns.db.settings.windowScale or "auto")
+
+	self.accent = ChoiceRow("modern", "Accent", "Colors Start, the selected thread, and headings. Class color follows your class.", "accent class verdigris ice copper gold color modern", 220, ChooseAccent)
+	self.accent:SetOptions(AccentChoices(), ns.db.settings.accent or "class")
+
+	local clearRow = CreateFrame("Frame", nil, content)
+	local opacity = UI.Slider(clearRow, 200, 0, 100, 1, ChooseClear, ClearText)
+	opacity:SetPoint("RIGHT", -8, 0)
+	opacity:SetValue(ns.db.settings.windowClear or 6, true)
+	Describe(clearRow, "Transparency", "How much of the world shows through this window. It starts where the dusk ground did.", opacity, theme)
+	clearRow.section = "modern"
+	clearRow.hay = "transparency opacity clear solid modern window"
+	table.insert(self.rows, clearRow)
+	self.opacity = opacity
 
 	local infoRow = CreateFrame("Frame", nil, content)
 	infoRow.section = "connection"
@@ -499,7 +511,7 @@ end
 -- Drop the page's controls: the window is being rebuilt under another design.
 function S:Teardown()
 	self.page, self.checks, self.controls = nil, nil, nil
-	self.voice, self.size, self.design, self.accent, self.info = nil, nil, nil, nil, nil
+	self.voice, self.size, self.design, self.accent, self.opacity, self.info = nil, nil, nil, nil, nil, nil
 	self.rows, self.nav, self.search, self.heading, self.subhead = nil, nil, nil, nil, nil
 	self.infoRow, self.content, self.empty, self.section = nil, nil, nil, nil
 end
@@ -526,8 +538,13 @@ function S:Refresh()
 	self.design.value = ns.db.settings.theme or "classic"
 	self.design:Update()
 	if self.accent then
-		self.accent.value = ns.db.settings.accent or "verdigris"
+		self.accent.value = ns.db.settings.accent or "class"
 		self.accent:Update()
+	end
+	if self.opacity then
+		local clear = ns.db.settings.windowClear
+		if type(clear) ~= "number" then clear = 6 end
+		self.opacity:SetValue(clear, true)
 	end
 	local T = ns.Transport
 	local b = ns.Store.data.bridge or {}

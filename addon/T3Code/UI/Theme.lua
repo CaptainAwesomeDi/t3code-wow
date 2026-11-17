@@ -14,14 +14,68 @@ ns.Theme = Theme
 -- gold (|cffffd100); in this window that gold means the accent.
 Theme.ACCENT_HEX = "ff7fd2b3"
 
--- The colors Settings offers. Verdigris is the default. Each rgb is the fill
--- (Start, selection bars, switches) and hex is the same color in font markup.
+-- The fixed colors Settings offers, after Class color. Verdigris is what Class
+-- color uses until the player's class is known. Each rgb is the fill (Start,
+-- selection bars, switches) and hex is the same color in font markup.
 Theme.ACCENTS = {
 	{ value = "verdigris", label = "Verdigris", rgb = { 0.498, 0.824, 0.702, 1.00 }, hex = "ff7fd2b3" },
 	{ value = "ice", label = "Ice", rgb = { 0.455, 0.776, 0.871, 1.00 }, hex = "ff74c6de" },
 	{ value = "copper", label = "Copper", rgb = { 0.894, 0.690, 0.541, 1.00 }, hex = "ffe4b08a" },
 	{ value = "gold", label = "Gold", rgb = { 0.902, 0.729, 0.400, 1.00 }, hex = "ffe6ba66" },
 }
+
+-- The game's own class colors, for a client that has no table of them.
+local CLASS_COLORS = {
+	WARRIOR = { 0.78, 0.61, 0.43 }, PALADIN = { 0.96, 0.55, 0.73 }, HUNTER = { 0.67, 0.83, 0.45 },
+	ROGUE = { 1, 0.96, 0.41 }, PRIEST = { 1, 1, 1 }, SHAMAN = { 0, 0.44, 0.87 },
+	MAGE = { 0.25, 0.78, 0.92 }, WARLOCK = { 0.53, 0.53, 0.93 }, DRUID = { 1, 0.49, 0.04 },
+}
+
+local function Hex(r, g, b)
+	local function channel(n)
+		return string.format("%02x", math.min(255, math.floor((n or 0) * 255 + 0.5)))
+	end
+	return "ff" .. channel(r) .. channel(g) .. channel(b)
+end
+
+-- The player's class file and localized name, once they're in the world.
+local function PlayerClass()
+	if not UnitClass then return end
+	local name, file = UnitClass("player")
+	if file and file ~= "" then return file, name end
+end
+
+-- A class's color: the client's, which a class-color addon may change, else ours.
+local function ClassRGB(file)
+	local c = C_ClassColor and C_ClassColor.GetClassColor and C_ClassColor.GetClassColor(file)
+	if not (c and type(c.r) == "number") then c = RAID_CLASS_COLORS and RAID_CLASS_COLORS[file] end
+	local own = CLASS_COLORS[file]
+	if c and type(c.r) == "number" then return c.r, c.g, c.b end
+	if own then return own[1], own[2], own[3] end
+end
+
+-- The Class color choice, or nil before the player's class is known.
+function Theme.ClassAccent()
+	local file, name = PlayerClass()
+	local r, g, b
+	if file then r, g, b = ClassRGB(file) end
+	if not r then return end
+	return {
+		value = "class",
+		label = name and ("Class color (" .. name .. ")") or "Class color",
+		rgb = { r, g, b, 1 },
+		hex = Hex(r, g, b),
+	}
+end
+
+-- Class color first: it's the default. The fixed colors follow.
+function Theme.Accents()
+	local list = { { value = "class", label = "Class color" } }
+	local class = Theme.ClassAccent()
+	if class then list[1].label = class.label end
+	for _, a in ipairs(Theme.ACCENTS) do table.insert(list, a) end
+	return list
+end
 
 -- Dusk ground. Notices use this color and opacity. The window paints the
 -- same navy flat, so the title isn't a see-through strip. Night was darker.
@@ -42,11 +96,16 @@ Theme.MODERN = {
 	switchOff = { 0.071, 0.086, 0.133, 1.00 }, -- the track of a switch that is off
 }
 
--- Copy the chosen accent onto the palette. An unknown id uses verdigris.
+-- Copy the chosen accent onto the palette. Class color follows the player.
+-- An unknown id, or a class that isn't known yet, uses verdigris.
 function Theme.UseAccent(id)
-	local pick = Theme.ACCENTS[1]
-	for _, a in ipairs(Theme.ACCENTS) do
-		if a.value == id then pick = a break end
+	local pick
+	if id == "class" then pick = Theme.ClassAccent() end
+	if not pick then
+		pick = Theme.ACCENTS[1]
+		for _, a in ipairs(Theme.ACCENTS) do
+			if a.value == id then pick = a break end
+		end
 	end
 	local dst = Theme.MODERN.accent
 	dst[1], dst[2], dst[3], dst[4] = pick.rgb[1], pick.rgb[2], pick.rgb[3], pick.rgb[4] or 1

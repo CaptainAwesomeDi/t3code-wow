@@ -154,7 +154,7 @@ function M:Create()
 			if f.Inset.NineSlice then f.Inset.NineSlice:Hide() end
 			HideArt(f.Inset)
 		end
-		-- Opaque, so the title isn't a see-through black strip over the world.
+		-- One ground for the whole window. Its alpha is the transparency setting.
 		local navy = { theme.windowBg[1], theme.windowBg[2], theme.windowBg[3], 1 }
 		f.ModernBg = Theme.Solid(f, navy)
 		f.ModernBg:SetAllPoints()
@@ -167,6 +167,7 @@ function M:Create()
 		f.ModernBandRule:SetHeight(1)
 		f.ModernBandRule:SetPoint("TOPLEFT", 0, -BAND_H)
 		f.ModernBandRule:SetPoint("TOPRIGHT", 0, -BAND_H)
+		M:ApplyOpacity()
 		if f.Inset then
 			if f.Inset.Bg then f.Inset.Bg:Hide() end
 			-- The template's inset runs down into the button row. Lift its bottom
@@ -1074,6 +1075,22 @@ function M:ApplyScale()
 	local scale = SCALES[pref] or ((ns.Gamepad and ns.Gamepad:IsActive()) and 1.15 or 1)
 	self.frame:SetScale(scale)
 end
+
+-- The modern window's ground. 0 is solid; 100 lets the world show through.
+-- The game's own frames have no ground to change.
+function M:ApplyOpacity()
+	local f = self.frame
+	local theme = Theme.Get()
+	if not f or not theme or not f.ModernBg then return end
+	local clear = ns.db.settings.windowClear
+	if type(clear) ~= "number" then clear = 6 end
+	clear = math.max(0, math.min(100, clear))
+	local alpha = 1 - clear / 100
+	local bg = theme.windowBg
+	f.ModernBg:SetColorTexture(bg[1], bg[2], bg[3], alpha)
+	if f.ModernBand then f.ModernBand:SetColorTexture(bg[1], bg[2], bg[3], alpha) end
+end
+
 
 -- Switching designs rebuilds the window: each frame's look is chosen when it is
 -- made, so a fresh window is simpler and safer than re-skinning frames built under

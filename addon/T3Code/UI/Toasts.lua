@@ -55,7 +55,7 @@ local function StyleToast(f)
 		end
 		for _, edge in ipairs(f.Edge) do edge:Show() end
 		Flat(f.Title, 13)
-		Theme.SetText(f.Title, theme.text)
+		Theme.SetText(f.Title, theme.accent)
 		Flat(f.Text, 11)
 	else
 		f:SetBackdrop({
