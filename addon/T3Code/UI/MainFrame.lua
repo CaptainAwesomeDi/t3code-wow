@@ -355,21 +355,30 @@ function M:Create()
 	return f
 end
 
+-- The widest the list may be in the window as it is now.
+function M:ListMax()
+	local f = self.frame
+	if not f then return math.huge end
+	return math.max(LIST_MIN, (f:GetWidth() or WIDTH) - LIST_KEEP)
+end
+
+-- The list's width as drawn: the width the player chose, narrowed while the window
+-- is too small for it.
 function M:ListWidth()
 	local w = (ns.db and ns.db.settings.listWidth) or LIST_W
-	return math.max(LIST_MIN, w)
+	return math.max(LIST_MIN, math.min(self:ListMax(), w))
 end
 
 -- The thread list's width, kept between a readable minimum and whatever still
--- leaves the conversation room. Moves the Back button with it.
-function M:ApplyListWidth(w)
+-- leaves the conversation room. Moves the Back button with it. Only a drag on the
+-- divider (`save`) changes the width kept for next time; a smaller window narrows
+-- the list without forgetting it.
+function M:ApplyListWidth(w, save)
 	local f = self.frame
 	local page = f and f.Pages and f.Pages.threads
 	if not page or not page.Left then return end
-	local frameW = f:GetWidth() or WIDTH
-	local maxW = math.max(LIST_MIN, frameW - LIST_KEEP)
-	w = math.max(LIST_MIN, math.min(maxW, math.floor(w or LIST_W)))
-	ns.db.settings.listWidth = w
+	w = math.max(LIST_MIN, math.min(self:ListMax(), math.floor(w or LIST_W)))
+	if save then ns.db.settings.listWidth = w end
 	page.Left:SetWidth(w)
 	if page.Left:IsShown() and f.Bar and f.Bar.Back then
 		local barY = Theme.Get() and BAR_Y_MODERN or 4
@@ -426,7 +435,7 @@ function M:CreateThreadsPage(page)
 			local scale = page:GetEffectiveScale() or 1
 			local x = GetCursorPosition() / scale
 			local origin = page:GetLeft() or 0
-			M:ApplyListWidth(x - origin)
+			M:ApplyListWidth(x - origin, true)
 		end)
 	end)
 	split:SetScript("OnMouseUp", function(self)
