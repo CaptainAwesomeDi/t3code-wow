@@ -125,6 +125,24 @@ export class Voice {
   // backend delivers the transcript through the clipboard and then sends a paste
   // keystroke; that keystroke doesn't reliably reach the game under Wine, so we
   // watch the clipboard and hand the text to the addon ourselves.
+  //
+  // Voxtype's usual mode types each letter into the focused window. In the game
+  // those letters are ability keys, so the addon window closes and a skill fires.
+  // This one recording is asked for the clipboard only, with no typed keys and
+  // no Enter afterwards.
+
+  // The commands for one dictation. Voxtype is driven directly so the recording
+  // can be told not to type; every other backend stays on omarchy-dictation.
+  dictationCommands({ voxtype = which('voxtype'), omarchy = which('omarchy-dictation') } = {}) {
+    if (this.backendName() === 'voxtype' && voxtype) {
+      return {
+        start: [voxtype, ['record', 'start', '--clipboard', '--no-auto-submit']],
+        stop: [voxtype, ['record', 'stop']],
+        cancel: [voxtype, ['record', 'cancel']],
+      };
+    }
+    return { start: [omarchy, ['start']], stop: [omarchy, ['stop']], cancel: null };
+  }
 
   canOmarchyDictate() {
     return !!(which('omarchy-dictation') && which('wl-paste'));
@@ -160,9 +178,11 @@ export class Voice {
       }
     });
     watcher.on('error', (err) => this.log(`clipboard watch: ${err.message}`));
+    session.commands = this.dictationCommands();
     this.omarchy = session;
     this.dictating = true;
-    spawn(which('omarchy-dictation'), ['start'], { stdio: 'ignore' }).on('error', (err) => this.log(`dictate: ${err.message}`));
+    const [cmd, args] = session.commands.start;
+    spawn(cmd, args, { stdio: 'ignore' }).on('error', (err) => this.log(`dictate: ${err.message}`));
     return true;
   }
 
@@ -174,6 +194,12 @@ export class Voice {
     try {
       s.watcher.kill();
     } catch {}
+    // Drop the recording without output, so a closed window can't still type
+    // the transcript into the game a moment later.
+    if (s.commands?.cancel) {
+      const [cmd, args] = s.commands.cancel;
+      spawn(cmd, args, { stdio: 'ignore' }).on('error', () => {});
+    }
   }
 
   // Stop the backend and resolve with the first clipboard text that appears after
@@ -203,12 +229,13 @@ export class Voice {
         if (fresh(ev)) finish(ev.text);
         else s.waiters.push(wait);
       });
-      const stopper = spawn(which('omarchy-dictation'), ['stop'], { stdio: ['ignore', 'ignore', 'pipe'] });
+      const [cmd, args] = s.commands.stop;
+      const stopper = spawn(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'] });
       let err = '';
       stopper.stderr.on('data', (d) => (err += d));
       stopper.on('exit', (code) => {
         if (code && !done) {
-          this.log(`omarchy-dictation stop failed: ${err.trim()}`);
+          this.log(`${path.basename(cmd)} ${args.join(' ')} failed: ${err.trim()}`);
           finish('');
         }
       });

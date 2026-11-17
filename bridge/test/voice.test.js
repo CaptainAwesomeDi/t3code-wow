@@ -15,3 +15,18 @@ test('a custom speech command gets the text on its standard input, through the s
   await new Promise((resolve) => voice.current.once('exit', resolve));
   assert.equal(fs.readFileSync(heard, 'utf8'), 'Für Elise, twice');
 });
+
+test('a voxtype recording is asked for the clipboard, so it does not type into the game', () => {
+  const voice = new Voice();
+  const bins = { voxtype: '/usr/bin/voxtype', omarchy: '/usr/bin/omarchy-dictation' };
+  voice.backendName = () => 'voxtype';
+  const cmds = voice.dictationCommands(bins);
+  assert.deepEqual(cmds.start, [bins.voxtype, ['record', 'start', '--clipboard', '--no-auto-submit']]);
+  assert.deepEqual(cmds.stop, [bins.voxtype, ['record', 'stop']]);
+  assert.deepEqual(cmds.cancel, [bins.voxtype, ['record', 'cancel']]);
+  voice.backendName = () => 'superwhisper';
+  const other = voice.dictationCommands(bins);
+  assert.deepEqual(other.start, [bins.omarchy, ['start']]);
+  assert.deepEqual(other.stop, [bins.omarchy, ['stop']]);
+  assert.equal(other.cancel, null);
+});
