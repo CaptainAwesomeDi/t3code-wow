@@ -1891,6 +1891,9 @@ do
 	check(tf.Header._shown ~= false and tf.Modern.Band._shown == false, "the classic tracker header returns")
 	check(tf.Lines[1].Sub:GetText():find("^- ", 1) ~= nil, "classic status keeps the tracker dash")
 	check(tf.Lines[1].Dot._shown ~= false, "the classic tracker dot is back")
+	local tl = tf.Lines[1]
+	check(tl.Title._font == nil and tl.Sub._font == nil and tl.Title._fontObject ~= nil and tl.Sub._fontObject ~= nil
+		and tl.Title._shadow and tl.Title._shadow[1] == 1 and tl.Sub._shadow and tl.Sub._shadow[1] == 1, "the classic tracker lines get their fonts and shadows back")
 	check(notice.Bar._shown == false and notice._backdrop and notice._backdrop.edgeFile ~= nil, "a notice goes back to the gold border")
 	check(rgba(notice.Title._textColor, { 1, 0.82, 0, 1 }), "a notice title goes back to the game's gold")
 	local classicName

@@ -101,6 +101,7 @@ local SETTERS = {
 	SetAlpha = function(self, a) self._alpha = a end,
 	SetTexture = function(self, tex) self._texture = tex end,
 	SetFont = function(self, path, size, flags) self._font = { path, size, flags } end,
+	SetFontObject = function(self, name) self._fontObject = name self._font = nil end,
 	SetShadowOffset = function(self, x, y) self._shadow = { x, y } end,
 	SetBackdrop = function(self, info) self._backdrop = info end,
 	SetBackdropColor = function(self, r, g, b, a) self._backdropColor = { r, g, b, a or 1 } end,

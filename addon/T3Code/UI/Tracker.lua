@@ -60,6 +60,9 @@ local function Font(name, fallback)
 	return _G[name] and name or fallback
 end
 
+local function TitleFont() return Font("ObjectiveTrackerHeaderFont", "GameFontNormalMed2") end
+local function LineFont() return Font("ObjectiveTrackerLineFont", "GameFontHighlightSmall") end
+
 -- The modern card's second row: plain words, no objective-tracker dash or color codes.
 local function Plain(t)
 	if t.s == "working" then
@@ -107,12 +110,12 @@ local function CreateLine(parent)
 	b.Dot:SetMask("Interface\\CharacterFrame\\TempPortraitAlphaMask")
 	b.Dot:SetSize(8, 8)
 	b.Dot:SetPoint("TOPLEFT", 4, -5)
-	b.Title = b:CreateFontString(nil, "ARTWORK", Font("ObjectiveTrackerHeaderFont", "GameFontNormalMed2"))
+	b.Title = b:CreateFontString(nil, "ARTWORK", TitleFont())
 	b.Title:SetPoint("TOPLEFT", 18, 0)
 	b.Title:SetPoint("RIGHT", -4, 0)
 	b.Title:SetJustifyH("LEFT")
 	b.Title:SetWordWrap(false)
-	b.Sub = b:CreateFontString(nil, "ARTWORK", Font("ObjectiveTrackerLineFont", "GameFontHighlightSmall"))
+	b.Sub = b:CreateFontString(nil, "ARTWORK", LineFont())
 	b.Sub:SetPoint("TOPLEFT", b.Title, "BOTTOMLEFT", 0, -2)
 	b.Sub:SetPoint("RIGHT", -4, 0)
 	b.Sub:SetJustifyH("LEFT")
@@ -280,7 +283,21 @@ local function ShowModern(f, on)
 	m.Band:SetShown(on)
 end
 
+-- Back to the tracker's own fonts: the modern card set its own size, no shadow,
+-- and its own colors.
+local function Unflat(fs, name)
+	fs:SetFontObject(name)
+	fs:SetShadowOffset(1, -1)
+	local obj = _G[name]
+	if obj and obj.GetTextColor then fs:SetTextColor(obj:GetTextColor()) end
+end
+
 local function StyleClassic(b)
+	if b.flat then
+		b.flat = nil
+		Unflat(b.Title, TitleFont())
+		Unflat(b.Sub, LineFont())
+	end
 	b.Bar:Hide()
 	b.Hover:Hide()
 	b.Dot:Show()
@@ -305,6 +322,7 @@ local function StyleModern(b, theme)
 	b.Sub:SetPoint("RIGHT", -10, 0)
 	Flat(b.Title, 12)
 	Flat(b.Sub, 11)
+	b.flat = true
 	Theme.SetText(b.Title, theme.text)
 	Theme.SetText(b.Sub, theme.muted)
 end
