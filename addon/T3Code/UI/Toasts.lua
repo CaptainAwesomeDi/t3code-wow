@@ -1,7 +1,9 @@
 -- Notices when a thread finishes or needs you: a small gold-bordered toast at the
--- top of the screen, a sound, a chat line, and optionally the reply read aloud.
+-- top of the screen, or a dusk card under the modern design. A sound, a chat line,
+-- and optionally the reply read aloud.
 
 local _, ns = ...
+local Theme = ns.Theme
 
 local N = {}
 ns.Toasts = N
@@ -20,16 +22,79 @@ local function Sound(kind)
 	if id then PlaySound(id, "Master") end
 end
 
+local function Flat(fs, size)
+	local font, cur = fs:GetFont()
+	fs:SetFont(font or "Fonts\\FRIZQT__.TTF", size or cur or 12, "")
+	fs:SetShadowOffset(0, 0)
+end
+
+local function Ink(token, text)
+	local function byte(n) return math.floor((n or 1) * 255 + 0.5) end
+	return string.format("|cff%02x%02x%02x%s|r", byte(token[1]), byte(token[2]), byte(token[3]), text)
+end
+
+-- The border treatment for the current design. The frames live in a pool, so a
+-- design switch re-styles the ones already made.
+local function StyleToast(f)
+	local theme = Theme.Get()
+	if theme then
+		f:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
+		-- The same dusk ground as the window, so the world shows through.
+		f:SetBackdropColor(theme.windowBg[1], theme.windowBg[2], theme.windowBg[3], theme.windowBg[4])
+		if not f.Bar then
+			f.Bar = f:CreateTexture(nil, "ARTWORK")
+			f.Bar:SetWidth(3)
+			f.Bar:SetPoint("TOPLEFT")
+			f.Bar:SetPoint("BOTTOMLEFT")
+		end
+		Theme.Paint(f.Bar, theme.accent)
+		f.Bar:Show()
+		if not f.Edge then
+			local top, bottom, _, right = Theme.Edges(f, theme.hairline, true)
+			f.Edge = { top, bottom, right }
+		end
+		for _, edge in ipairs(f.Edge) do edge:Show() end
+		Flat(f.Title, 13)
+		Theme.SetText(f.Title, theme.accent)
+		Flat(f.Text, 11)
+	else
+		f:SetBackdrop({
+			bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
+			edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border",
+			tile = true, tileSize = 32, edgeSize = 24,
+			insets = { left = 6, right = 6, top = 6, bottom = 6 },
+		})
+		if f.Bar then f.Bar:Hide() end
+		if f.Edge then for _, edge in ipairs(f.Edge) do edge:Hide() end end
+		f.Title:SetFontObject("GameFontNormal")
+		f.Text:SetFontObject("GameFontHighlightSmall")
+		f.Title:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
+		f.Title:SetShadowOffset(1, -1)
+		f.Text:SetShadowOffset(1, -1)
+	end
+end
+
+local function Fill(f, t, kind)
+	f.payload, f.kind = t, kind
+	f.Title:SetText(t.title)
+	local theme = Theme.Get()
+	if theme then
+		local word = ({ input = "Needs you", plan = "Plan ready", failed = "Failed", open = "Finished" })[kind] or ""
+		local mark = (kind == "input" or kind == "plan") and theme.accent or (kind == "failed" and { 0.90, 0.35, 0.32 } or theme.muted)
+		local line = Ink(mark, word) .. Ink(theme.muted, "  ·  " .. ns.Store:ProjectName(t.p))
+		if t.last then line = line .. "\n" .. Ink(theme.text, t.last) end
+		f.Text:SetText(line)
+	else
+		local headline = ({ input = ns.Color("orange", "Needs you"), plan = ns.Color("orange", "Plan ready"),
+			failed = ns.Color("red", "Failed"), open = ns.Color("green", "Finished") })[kind] or ""
+		f.Text:SetText(headline .. ns.Color("grey", "  ·  " .. ns.Store:ProjectName(t.p)) .. (t.last and ("\n" .. t.last) or ""))
+	end
+end
+
 local function CreateToast(i)
 	local f = CreateFrame("Button", nil, UIParent, "BackdropTemplate")
 	f:SetSize(WIDTH, 64)
 	f:SetFrameStrata("DIALOG")
-	f:SetBackdrop({
-		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
-		edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border",
-		tile = true, tileSize = 32, edgeSize = 24,
-		insets = { left = 6, right = 6, top = 6, bottom = 6 },
-	})
 	f.Icon = f:CreateTexture(nil, "ARTWORK")
 	f.Icon:SetSize(40, 40)
 	f.Icon:SetPoint("TOPLEFT", 12, -12)
@@ -45,6 +110,7 @@ local function CreateToast(i)
 	f.Text:SetMaxLines(4)
 	f.Text:SetWidth(TEXT_W)
 	f.Text:SetWordWrap(true)
+	StyleToast(f)
 	f:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	f:SetScript("OnClick", function(self, button)
 		if button == "LeftButton" and self.threadId then ns.Main:SelectThread(self.threadId, { show = true }) end
@@ -62,6 +128,14 @@ local function CreateToast(i)
 end
 
 N.frames = {}
+
+-- Restyle the pooled notices after a design switch.
+function N:ApplyTheme()
+	for _, f in ipairs(self.frames) do
+		StyleToast(f)
+		if f.payload then Fill(f, f.payload, f.kind) end
+	end
+end
 
 -- The newest notice still on screen, so a shortcut press can open its thread.
 function N:VisibleThread()
@@ -95,10 +169,8 @@ function N:Show(t, kind)
 	f = f or self.frames[1]
 	f.threadId = t.id
 	f.shownAt = GetTime()
-	local headline = ({ input = ns.Color("orange", "Needs you"), plan = ns.Color("orange", "Plan ready"),
-		failed = ns.Color("red", "Failed"), open = ns.Color("green", "Finished") })[kind] or ""
-	f.Title:SetText(t.title)
-	f.Text:SetText(headline .. ns.Color("grey", "  ·  " .. ns.Store:ProjectName(t.p)) .. (t.last and ("\n" .. t.last) or ""))
+	StyleToast(f)
+	Fill(f, t, kind)
 	-- Grow the frame to fit the text (up to four lines of the reply).
 	local h = 14 + f.Title:GetStringHeight() + 4 + f.Text:GetStringHeight() + 14
 	f:SetHeight(math.max(64, math.ceil(h)))
@@ -108,6 +180,19 @@ function N:Show(t, kind)
 	self:Layout()
 	if f.timer then f.timer:Cancel() end
 	f.timer = C_Timer.NewTimer(LIFETIME, function() if f:IsShown() then f.fade:Play() end end)
+end
+
+-- A sample of the popup, so Settings can show the current design without waiting
+-- for a thread to finish.
+function N:Preview()
+	local t = ns.viewId and ns.Store:Thread(ns.viewId)
+	local projects = ns.Store.data.projects or {}
+	self:Show({
+		id = t and t.id or "preview",
+		title = t and t.title or "A thread finished",
+		p = t and t.p or (projects[1] and projects[1].id),
+		last = (t and t.last) or "This is how a notice looks.",
+	}, "open")
 end
 
 local VERBS = { input = "needs your input", plan = "has a plan ready", failed = "failed", open = "finished" }

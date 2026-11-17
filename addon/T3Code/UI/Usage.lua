@@ -14,6 +14,7 @@ function U:Create(page)
 	local content = CreateFrame("Frame", nil, scroll)
 	content:SetSize(560, 10)
 	scroll:SetScrollChild(content)
+	UI.PlaceScrollBar(scroll)
 	scroll:SetScript("OnSizeChanged", function(_, w) content:SetWidth(w) end)
 	self.scroll, self.content = scroll, content
 	self.pool = { header = {}, row = {} }
@@ -22,12 +23,26 @@ function U:Create(page)
 	self.empty:SetWidth(500)
 end
 
+-- Drop the page's frames: the window is being rebuilt under another design.
+function U:Teardown()
+	self.scroll, self.content, self.pool, self.empty, self.page = nil, nil, nil, nil, nil
+end
+
 local function Header(content)
 	local h = CreateFrame("Frame", nil, content)
 	h:SetHeight(28)
-	local bg = h:CreateTexture(nil, "BACKGROUND")
-	bg:SetAtlas("common-button-list-collapseExpand")
-	bg:SetAllPoints()
+	local theme = ns.Theme.Get()
+	if theme then
+		-- A hairline under the plan's name, no plate.
+		local rule = ns.Theme.Solid(h, theme.hairline)
+		rule:SetHeight(1)
+		rule:SetPoint("BOTTOMLEFT", 4, 2)
+		rule:SetPoint("BOTTOMRIGHT", -4, 2)
+	else
+		local bg = h:CreateTexture(nil, "BACKGROUND")
+		bg:SetAtlas("common-button-list-collapseExpand")
+		bg:SetAllPoints()
+	end
 	h.Text = h:CreateFontString(nil, "ARTWORK", "Game15Font_Shadow")
 	h.Text:SetPoint("CENTER")
 	return h

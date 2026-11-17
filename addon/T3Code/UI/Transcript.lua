@@ -75,12 +75,12 @@ local function InitMessage(frame, ed)
 	end
 	local m = ed.msg
 	if m.r == "u" then
-		frame.Label:SetText(ns.Color("gold", ed.echo and "you  |cff9d9d9d(sending…)|r" or "you"))
+		frame.Label:SetText(ns.Color("gold", ed.echo and "You  |cff9d9d9d(sending…)|r" or "You"))
 	else
-		frame.Label:SetText(ns.Color("agent", "agent") .. (m.live and ns.Color("grey", "  writing…") or ""))
+		frame.Label:SetText(ns.Color("agent", "Agent") .. (m.live and ns.Color("grey", "  writing…") or ""))
 	end
 	frame.Body:SetWidth(T:BodyWidth())
-	frame.Body:SetText(m.t)
+	frame.Body:SetText(ns.Theme.Markup(m.t))
 	-- If the real text is taller than estimated (font or scale differences), grow the
 	-- row and lay the list out again rather than letting the next row overlap it.
 	local needed = 34 + math.ceil(frame.Body:GetStringHeight())
@@ -121,8 +121,11 @@ local function InitNote(frame, ed)
 	frame.Text:SetWidth(T:BodyWidth() - 22)
 	local text = ed.text
 	if ed.since then text = string.format("%s  |cff9d9d9d(%s)|r", text, ns.Duration(time() - ed.since)) end
-	frame.Text:SetText(text)
-	frame.Icon:SetAtlas(ed.icon or "common-icon-forwardarrow")
+	frame.Text:SetText(ns.Theme.Markup(text))
+	local theme = ns.Theme.Get()
+	if theme then ns.Theme.SetText(frame.Text, theme.text) end
+	local mark = ed.icon or "common-icon-forwardarrow"
+	if not UI.SetIcon(frame.Icon, mark, 16) then frame.Icon:SetAtlas(mark) end
 	if ed.spin then frame.Anim:Play() else frame.Anim:Stop() end
 end
 
@@ -137,9 +140,14 @@ local function InitOption(button, ed)
 		button.Label:SetJustifyH("LEFT")
 		button.Label:SetWordWrap(false)
 		local hl = button:CreateTexture(nil, "HIGHLIGHT")
-		hl:SetAtlas("Options_List_Hover")
+		local theme = ns.Theme.Get()
+		if theme then
+			ns.Theme.Paint(hl, theme.hover)
+		else
+			hl:SetAtlas("Options_List_Hover")
+			hl:SetAlpha(0.5)
+		end
 		hl:SetAllPoints()
-		hl:SetAlpha(0.5)
 		button:SetScript("OnEnter", function(self)
 			if not self.desc or self.desc == "" then return end
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -150,16 +158,44 @@ local function InitOption(button, ed)
 		button:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	end
 	button.desc = ed.desc
+	local theme = ns.Theme.Get()
 	if ed.checked ~= nil then
-		button.Bullet:SetTexture(ed.checked and "Interface\\Buttons\\UI-CheckBox-Check" or "Interface\\Buttons\\UI-CheckBox-Up")
-		button.Bullet:SetSize(16, 16)
+		if theme then
+			-- A flat square: the accent when checked, grey when not.
+			button.Bullet:SetTexture("Interface\\Buttons\\WHITE8X8")
+			if ed.checked then
+				ns.Theme.Paint(button.Bullet, theme.accent)
+			else
+				button.Bullet:SetVertexColor(0.45, 0.45, 0.45)
+			end
+			button.Bullet:SetSize(10, 10)
+		else
+			button.Bullet:SetTexture(ed.checked and "Interface\\Buttons\\UI-CheckBox-Check" or "Interface\\Buttons\\UI-CheckBox-Up")
+			button.Bullet:SetSize(16, 16)
+		end
 	else
 		button.Bullet:SetTexture("Interface\\Buttons\\WHITE8X8")
-		button.Bullet:SetVertexColor(0.9, 0.9, 0.9)
-		button.Bullet:SetSize(7, 7)
+		if theme then
+			-- A short accent mark. A white square sat in the same colour as the words.
+			ns.Theme.Paint(button.Bullet, theme.accent)
+			button.Bullet:SetSize(3, 10)
+		else
+			button.Bullet:SetVertexColor(0.9, 0.9, 0.9)
+			button.Bullet:SetSize(7, 7)
+		end
 	end
 	button.Label:SetText(ed.label)
-	if ed.primary then button.Label:SetTextColor(1, 1, 1) else button.Label:SetTextColor(NORMAL_FONT_COLOR:GetRGB()) end
+	if theme then
+		-- GameFontNormal's shadow is light, so white letters disappeared into it.
+		local path, size = button.Label:GetFont()
+		button.Label:SetFont(path or "Fonts\\FRIZQT__.TTF", size or 12, "")
+		button.Label:SetShadowOffset(0, 0)
+		ns.Theme.SetText(button.Label, ed.primary and theme.text or theme.muted)
+	elseif ed.primary then
+		button.Label:SetTextColor(1, 1, 1)
+	else
+		button.Label:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
+	end
 	button:SetScript("OnClick", function()
 		PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
 		ed.onClick()
@@ -169,7 +205,14 @@ end
 ---------------------------------------------------------------------------
 
 function T:Create(parent, header, composer)
-	local inset = UI.Inset(parent)
+	local inset
+	if ns.Theme.Get() then
+		-- The conversation sits on the window's own ground;
+		-- the composer below is the panel.
+		inset = CreateFrame("Frame", nil, parent)
+	else
+		inset = UI.Inset(parent)
+	end
 	inset:SetPoint("TOPLEFT", header, "BOTTOMLEFT", -2, -4)
 	inset:SetPoint("BOTTOMRIGHT", composer, "TOPRIGHT", 0, 4)
 	self.inset, self.header, self.top = inset, header, header
@@ -189,9 +232,17 @@ function T:Create(parent, header, composer)
 	end)
 	view:SetElementExtentCalculator(function(_, ed) return ed.height or 24 end)
 	ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
+	UI.StyleScrollBar(scrollBar)
 	self.scrollBox, self.scrollBar, self.view = scrollBox, scrollBar, view
 
 	scrollBox:SetScript("OnSizeChanged", function() T:Relayout() end)
+end
+
+-- Drop the conversation's frames: the window is being rebuilt under another design.
+function T:Teardown()
+	self.inset, self.header, self.top = nil, nil, nil
+	self.scrollBox, self.scrollBar, self.view = nil, nil, nil
+	self.key, self.dp = nil, nil
 end
 
 -- What the conversation hangs under: the header, or the family bar while it's shown.

@@ -15,6 +15,12 @@ local function TextOf(self)
 	return (owner or self)._text or ""
 end
 
+local function addRegion(self, region)
+	self._regions = self._regions or {}
+	table.insert(self._regions, region)
+	return region
+end
+
 local GETTERS = {
 	GetWidth = function(self) return self._w or 600 end,
 	GetHeight = function(self) return self._h or 400 end,
@@ -48,6 +54,9 @@ local GETTERS = {
 	GetPushedTexture = function() return Stub.NewFrame("Texture") end,
 	GetFontHeight = function() return 14 end,
 	GetFrameLevel = function(self) return self._level or 1 end,
+	GetVerticalScroll = function(self) return self._vscroll or 0 end,
+	GetVerticalScrollRange = function(self) return self._vrange or 0 end,
+	GetRegions = function(self) return unpack(self._regions or {}) end,
 	GetScale = function(self) return self._scale or 1 end,
 	GetCenter = function(self) Stub.geo = (Stub.geo or 0) + 1 return 100 + (Stub.geo % 7) * 40, 500 - Stub.geo * 3 end,
 	GetTop = function() return 300 end,
@@ -86,8 +95,18 @@ local SETTERS = {
 	EnableGamePadButton = function(self, on) self._gamepadEnabled = on end,
 	SetPoint = function(self, point, rel, ...) self._points = self._points or {} table.insert(self._points, { point, rel, ... }) end,
 	ClearAllPoints = function(self) self._points = {} end,
-	SetColorTexture = function(self, r, g, b) self._color = { r, g, b } end,
-	SetVertexColor = function(self, r, g, b, a) self._vertex = { r, g, b, a } end,
+	SetColorTexture = function(self, r, g, b, a) self._color = { r, g, b, a or 1 } end,
+	SetVertexColor = function(self, r, g, b, a) self._vertex = { r, g, b, a or 1 } end,
+	SetTextColor = function(self, r, g, b, a) self._textColor = { r, g, b, a or 1 } end,
+	SetAlpha = function(self, a) self._alpha = a end,
+	SetTexture = function(self, tex) self._texture = tex end,
+	SetFont = function(self, path, size, flags) self._font = { path, size, flags } end,
+	SetShadowOffset = function(self, x, y) self._shadow = { x, y } end,
+	SetBackdrop = function(self, info) self._backdrop = info end,
+	SetBackdropColor = function(self, r, g, b, a) self._backdropColor = { r, g, b, a or 1 } end,
+	SetStatusBarColor = function(self, r, g, b, a) self._barColor = { r, g, b, a or 1 } end,
+	SetVerticalScroll = function(self, y) self._vscroll = y end,
+	SetTextInsets = function(self, left, right, top, bottom) self._insets = { left, right, top, bottom } end,
 	SetScript = function(self, name, fn) self._scripts[name] = fn end,
 	HookScript = function(self, name, fn)
 		local old = self._scripts[name]
@@ -100,10 +119,14 @@ local SETTERS = {
 	Disable = function(self) self._enabled = false end,
 	SetEnabled = function(self, e) self._enabled = e and true or false end,
 	RegisterEvent = function(self, e) Stub.events[e] = Stub.events[e] or {} Stub.events[e][self] = true end,
-	CreateTexture = function(self) return Stub.NewFrame("Texture", self) end,
-	CreateFontString = function(self, _, _, font) local f = Stub.NewFrame("FontString", self) return f end,
+	CreateTexture = function(self) return addRegion(self, Stub.NewFrame("Texture", self)) end,
+	CreateFontString = function(self, _, _, font) return addRegion(self, Stub.NewFrame("FontString", self)) end,
 	CreateMaskTexture = function(self) return Stub.NewFrame("Texture", self) end,
-	Click = function(self) if self._scripts.OnClick then self._scripts.OnClick(self, "LeftButton") end end,
+	-- A CheckButton flips before OnClick, as the client does.
+	Click = function(self)
+		if self._kind == "CheckButton" then self._checked = not self._checked end
+		if self._scripts.OnClick then self._scripts.OnClick(self, "LeftButton") end
+	end,
 	-- ScrollBox
 	SetDataProvider = function(self, dp)
 		self._dp = dp
@@ -173,10 +196,12 @@ FrameMT.__index = function(self, k)
 end
 
 local TEMPLATE_CHILDREN = {
-	ButtonFrameTemplate = { "Inset", "TitleContainer", "CloseButton", "NineSlice" },
+	ButtonFrameTemplate = { "Inset", "TitleContainer", "CloseButton", "NineSlice", "TopTileStreaks", "TitleBg" },
+	ScrollFrameTemplate = { "ScrollBar" },
 	LargeSideTabButtonTemplate = { "Icon", "SelectedTexture" },
 	UICheckButtonTemplate = { "Text" },
 	ObjectiveTrackerModuleHeaderTemplate = { "Text", "MinimizeButton", "Background" },
+	SearchBoxTemplate = { "Instructions", "searchIcon" },
 }
 
 -- The strip's cell values (0..7) as currently drawn, in order.

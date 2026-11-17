@@ -246,14 +246,12 @@ do
 	local wt
 	for _, cb in ipairs(ns.Settings.checks or {}) do if cb.key == "newWorktree" then wt = cb end end
 	check(wt and not wt:GetChecked(), "worktree is a setting, off by default")
-	wt:SetChecked(true) -- the stub's Click runs the handler but doesn't flip the box
-	wt:Click()
+	wt:Click() -- a check button toggles itself, then the handler stores it
 	check(ns.db.settings.newWorktree == true, "ticking the setting remembers worktree threads")
 	ns.Main.composer._text = "Build a thing"
 	ns.Main:Send()
 	local pickI, pickS = ns.Store.SplitModelKey(pick.value)
 	check(ns.Transport:Payload():find("Build a thing\031" .. pickI .. "\031" .. pickS .. "\031" .. (level or "") .. "\0311", 1, true) ~= nil, "the worktree setting rides along with the new thread")
-	wt:SetChecked(false)
 	wt:Click()
 	check(ns.db.settings.newWorktree == false, "unticking stops worktree threads")
 end
@@ -1474,6 +1472,442 @@ do
 	ns.Store.data.threads = saved
 	ns.MinimapButton:Refresh()
 	ns.Tracker:Refresh()
+end
+
+-- Design switch: the window rebuilds under the chosen design, keeping the open
+-- page, the draft and the selection.
+do
+	ns.Main:Open()
+	local rowThread
+	for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
+		if r.ed.thread then rowThread = r.ed.thread break end
+	end
+	if rowThread then ns.Main:SelectThread(rowThread.id) end
+	local old = ns.Main.frame
+	local page = ns.Main.page
+	ns.Main.composer:SetText("a draft survives the switch")
+	ns.db.settings.windowSize = { 820, 520 }
+	local function rgba(c, token)
+		return c and token and c[1] == token[1] and c[2] == token[2] and c[3] == token[3] and (c[4] or 1) == (token[4] or 1)
+	end
+	local function painted(widget, token)
+		for _, r in ipairs(widget and widget._regions or {}) do
+			if rgba(r._color, token) then return r end
+		end
+	end
+	local function labelOf(button)
+		for _, r in ipairs(button and button._regions or {}) do
+			if r._kind == "FontString" then return r end
+		end
+	end
+	check(ns.Settings.design.value == "classic", "the design dropdown starts on the game's look")
+	ns.Settings.design:Step(1)
+	local f = ns.Main.frame
+	check(f ~= old and ns.db.settings.theme == "modern", "choosing modern in the design dropdown rebuilds the window")
+	check(ns.db.settings.accent == "class" and ns.Theme.ACCENT_HEX == "ff7fd2b3", "the accent defaults to class color, and verdigris until the class is known")
+	check(ns.Color("gold", "Start") == "|c" .. ns.Theme.ACCENT_HEX .. "Start|r", "a heading uses the accent instead of the game's gold")
+	check(ns.Theme.Markup("|cffffd100Plan|r and |cffff4040no|r") == "|c" .. ns.Theme.ACCENT_HEX .. "Plan|r and |cffff4040no|r", "only the game's gold in a message becomes the accent")
+	local printed = #Stub.printed
+	ns.Print("still gold")
+	check(Stub.printed[printed + 1]:find("|cffffd100T3 Code|r", 1, true) ~= nil, "chat keeps the game's gold while the window uses the accent")
+	check(f:IsShown(), "the window stays open across the switch")
+	check(ns.Main.page == page, "the open page survives the switch")
+	check(ns.Main.composer:GetInputText() == "a draft survives the switch", "the draft survives the switch")
+	check(f._w == 820 and f._h == 520, "a saved window size is applied to the rebuilt window")
+	local theme = ns.Theme.MODERN
+	local ground, accent, panel = theme.windowBg, theme.accent, theme.panel
+	local hairline, muted, text, onAccent = theme.hairline, theme.muted, theme.text, theme.onAccent
+	check(f.ModernBg._color[1] == ground[1] and f.ModernBg._color[2] == ground[2] and f.ModernBg._color[3] == ground[3], "the modern ground is painted")
+	check(math.abs(f.ModernBg._color[4] - 0.94) < 0.001, "the window starts at the dusk transparency")
+	do
+		local savedView = ns.Store.data.view
+		ns.Store.data.view = {
+			id = ns.viewId,
+			msgs = {
+				{ r = "u", t = "hello", at = 1, n = 1 },
+				{ r = "a", t = "hi", at = 2, n = 2, live = true },
+			},
+		}
+		ns.Transcript:Refresh(true)
+		local youLabel, agentLabel
+		for _, r in ipairs(ns.Transcript.scrollBox._rows or {}) do
+			if r.ed and r.ed.kind == "msg" and r.frame and r.frame.Label then
+				if r.ed.msg.r == "u" then youLabel = r.frame.Label:GetText() else agentLabel = r.frame.Label:GetText() end
+			end
+		end
+		check(youLabel == ns.Color("gold", "You"), "a player's line is labeled You")
+		check(agentLabel == ns.Color("agent", "Agent") .. ns.Color("grey", "  writing…"), "a live reply is labeled Agent")
+		ns.Store.data.view = savedView
+		ns.Transcript:Refresh(true)
+	end
+	check(f.TopTileStreaks and f.TopTileStreaks._shown == false and f.TitleBg and f.TitleBg._shown == false, "the template's black streaks are hidden")
+	check(not f.ModernRim, "the gold top trim is gone")
+	local rules = 0
+	for _, r in ipairs(f._regions or {}) do
+		if rgba(r._color, hairline) and (r._w == 1 or r._h == 1) then rules = rules + 1 end
+	end
+	check(rules >= 4, "the window has a hairline border")
+	check(f.ModernBand._color[1] == ground[1] and f.ModernBand._color[4] == f.ModernBg._color[4], "the title is the same navy")
+	local titleAt = f.Subtitle._points and f.Subtitle._points[1]
+	local statusAt = f.Status._points and f.Status._points[1]
+	check(titleAt and titleAt[1] == "LEFT" and titleAt[2] == f.ModernTitle, "the thread name sits in the title band")
+	check(statusAt and statusAt[2] == f.SidebarToggle, "the link status sits beside the list toggle")
+	check(f.SidebarToggle.Icon._texture:find("icons\\chevron-left", 1, true) ~= nil, "the list toggle is a line chevron")
+	check(f.ModernClose and f.ModernClose.Text:GetText() == "×", "the modern close is a quiet ×")
+	check(f.CloseButton == nil or f.CloseButton._shown == false, "the template's close button is hidden in modern")
+	check(f.NineSlice and f.NineSlice._shown == false, "the game's ornate border is hidden")
+	local function tabBar(tab)
+		for _, r in ipairs(tab._regions or {}) do
+			if r._w == 2 and rgba(r._color, accent) then return r end
+		end
+	end
+	local function tabsMarked(pageName)
+		for _, tab in ipairs(f.Tabs) do
+			local on = tab.page == pageName
+			local bar = tabBar(tab)
+			if not bar or (bar._shown ~= false) ~= on or not rgba(tab.Icon._vertex, on and text or muted) then return false end
+		end
+		return true
+	end
+	check(tabsMarked(page), "the open page's side tab carries the accent")
+	check(painted(f.Bar.Send, accent) and rgba(labelOf(f.Bar.Send)._textColor, onAccent) and labelOf(f.Bar.Send)._shadow[1] == 0 and labelOf(f.Bar.Send)._shadow[2] == 0, "Send is the gold button, with flat dark text")
+	check(painted(f.Bar.Refresh, theme.panelAlt) and not painted(f.Bar.Refresh, accent), "the other buttons stay on the flat dark fill")
+	check(f.Bar.Stop.Icon._texture:find("icons\\x", 1, true) and f.Bar.Stop.Background._color[4] == 0, "toolbar icons are line strokes on the ground")
+	check(painted(f.Pages.threads.Right.ComposerInset, panel) and not painted(ns.Transcript.inset, panel), "the message box is a panel and the conversation sits on the window ground")
+	check(painted(ns.Family.bar, hairline) and ns.Family.bar.Up.Icon._texture:find("icons\\chevron-left", 1, true), "the family bar closes with a hairline and a line chevron")
+	local scroll = ns.ThreadList.scrollBar
+	check(scroll._w == 6 and scroll.Line and rgba(scroll.Line._color, { muted[1], muted[2], muted[3], 0.28 }), "the thread list scrollbar is a thin muted line")
+	local press = f._scripts.OnGamePadButtonDown
+	check(ns.Gamepad.capturing and press, "the rebuilt window takes the controller")
+	ns.Gamepad:Highlight(ns.Main.composer)
+	check(press(f, "PADDDOWN") == false and ns.Gamepad.selected == f.Bar.Send, "Down from the message box still reaches Send")
+	check(press(f, "PADRSHOULDER") == false and ns.Main.page ~= page and tabsMarked(ns.Main.page), "a bumper changes page and moves the accent")
+	ns.Main:ShowPage(page)
+	check(tabsMarked(page), "the accent returns with the page")
+	local notice = ns.Toasts.frames[1]
+	if not notice then
+		ns.Toasts:Show({ id = "toast-modern", title = "Notice", p = ns.Store.data.projects[1].id, last = "done" }, "open")
+		notice = ns.Toasts.frames[1]
+	end
+	check(notice.Bar and notice.Bar._shown ~= false and rgba(notice.Bar._color, accent), "a notice carries the accent bar")
+	check(notice.Edge and notice.Edge[1]._shown ~= false and rgba(notice.Edge[1]._color, hairline), "a notice has a hairline around it")
+	check(rgba(notice._backdropColor, theme.windowBg) and theme.windowBg[4] < 1, "a notice uses the window's translucent ground")
+	check(rgba(notice.Title._textColor, accent) and notice.Title._shadow[1] == 0, "a notice title uses the accent")
+	check(notice.Text:GetText():find("Finished", 1, true) and not notice.Text:GetText():find("ff1eff00", 1, true), "a finished notice keeps the status quiet")
+	check(ns.Settings.checks[1].Fill ~= nil and ns.Settings.checks[1].Sync ~= nil, "modern settings use a drawn switch")
+	local search = ns.ThreadList.search
+	check(search and search._insets and search._insets[1] >= 28, "the search text starts clear of the icon")
+	local hintX
+	for _, pt in ipairs(search.Instructions and search.Instructions._points or {}) do
+		if pt[1] == "LEFT" and type(pt[2]) == "number" then hintX = pt[2] end
+	end
+	check(hintX and hintX >= 28, "the search hint starts clear of the icon")
+	check(search.LineIcon and search.LineIcon._texture:find("icons\\search", 1, true) and search.searchIcon._shown == false and search.searchIcon._alpha == 0, "the search box uses the line magnifier")
+	local savedTrackerThreads = ns.Store.data.threads
+	ns.Store.data.threads = { { id = "fin", title = "Improve the window", s = "open", un = true, u = time(), p = "p" } }
+	ns.Tracker:Refresh()
+	local tf = ns.Tracker.frame
+	check(tf.Modern and tf.Modern.Bg._color[1] == ground[1] and tf.Modern.Band._shown ~= false, "the tracker wears the dusk card")
+	check(tf.Header._shown == false, "the objective tracker header steps aside")
+	check(tf.Lines[1] and tf.Lines[1].Sub:GetText() == "Finished · now", "a finished thread reads as a quiet status")
+	check(tf.Lines[1].Dot._shown == false and tf.Lines[1].Bar._shown == false, "a finished thread has no dot and no gold bar")
+	ns.Store.data.threads = { { id = "need", title = "Approve", s = "input", l = "Needs you", p = "p" } }
+	ns.Tracker:Refresh()
+	check(tf.Lines[1].Bar._shown ~= false and tf.Lines[1].Bar._color[1] == accent[1], "a thread that needs you carries the gold bar")
+	check(rgba(tf.Lines[1].Title._textColor, accent), "a thread that needs you is titled in gold")
+	tf.Lines[1]._scripts.OnEnter(tf.Lines[1])
+	check(tf.Lines[1].Hover._shown ~= false and rgba(tf.Lines[1].Hover._color, theme.hover), "a tracker row highlights under the pointer")
+	tf.Lines[1]._scripts.OnLeave(tf.Lines[1])
+	check(tf.Lines[1].Hover._shown == false, "the highlight leaves with the pointer")
+	local bridgeNow = ns.Transport.bridgeNow
+	ns.Store.data.threads = {
+		{ id = "live", title = "Working now", s = "working", l = "Editing", st = time() - 125, p = "p" },
+		{ id = "wait", title = "Watching", s = "waiting", l = "Watching pull request", st = time() - 30, p = "p" },
+		{ id = "bad", title = "Broken", s = "failed", un = true, u = time(), p = "p" },
+	}
+	ns.Transport.bridgeNow = time() - 1000
+	ns.Tracker:Refresh()
+	check(tf.Lines[1].Sub:GetText():find("Editing · ", 1, true) and rgba(tf.Lines[1].Bar._color, { 0.45, 0.68, 0.95, 1 }) and tf.Lines[1].Dot._shown == false, "a working thread names what it's doing, with a blue bar")
+	check(tf.Lines[2].Sub:GetText():find("Watching pull request · ", 1, true) and tf.Lines[2].Bar._shown == false, "a waiting thread has no bar")
+	check(tf.Lines[3].Sub:GetText() == "Failed" and rgba(tf.Lines[3].Bar._color, { 0.90, 0.35, 0.32, 1 }), "a failed thread carries a red bar")
+	check(tf.Lines[4].Title:GetText() == "Connection lost" and tf.Lines[4].Bar._shown ~= false and rgba(tf.Lines[4].Bar._color, accent), "a lost connection is a gold line on the card")
+	local collapsed = ns.db.settings.trackerCollapsed
+	ns.db.settings.trackerCollapsed = true
+	ns.Tracker:Refresh()
+	check(tf.Lines[1]._shown == false and tf:GetHeight() == 22 and tf.Modern.Chevron._texture:find("chevron-right", 1, true), "collapsing the card leaves the band and turns the chevron")
+	ns.db.settings.trackerCollapsed = collapsed
+	ns.Transport.bridgeNow = bridgeNow
+	ns.Store.data.threads = { { id = "need", title = "Approve", s = "input", l = "Needs you", p = "p" } }
+	ns.Tracker:Refresh()
+	local trackerOn = ns.db.settings.tracker
+	local sw = ns.Settings.checks[1]
+	check(sw:GetChecked() and sw.Fill._points[#sw.Fill._points][1] == "RIGHT" and rgba(sw.Switch._regions[1]._vertex, accent), "a switch that is on is gold, with the thumb to the right")
+	sw:SetChecked(true)
+	sw:Click()
+	check(ns.db.settings.tracker == false, "clicking a switch stores it")
+	check(not sw:GetChecked() and sw.Fill._points[#sw.Fill._points][1] == "LEFT" and rgba(sw.Switch._regions[1]._vertex, theme.switchOff), "a switch that is off is dark, with the thumb to the left")
+	sw:Click()
+	check(ns.db.settings.tracker == true, "clicking the switch again turns it back on")
+	check(sw.Fill._points[#sw.Fill._points][1] == "RIGHT" and rgba(sw.Switch._regions[1]._vertex, accent), "the thumb returns to the right when the switch is on")
+	ns.db.settings.tracker = trackerOn
+	check(ns.Settings.nav and #ns.Settings.nav == 7, "modern settings lists its sections")
+	local modernTab = false
+	for _, b in ipairs(ns.Settings.nav) do if b.id == "modern" and b.Text:GetText() == "Modern" then modernTab = true end end
+	check(modernTab, "modern settings has a Modern page")
+	check(ns.Settings.heading:GetText() == "Notices", "settings open on Notices")
+	for _, b in ipairs(ns.Settings.nav) do if b.id == "voice" then b:Click() end end
+	check(ns.Settings.heading:GetText() == "Voice", "a section opens its page")
+	local voiceMarked, noticesMarked = false, false
+	for _, b in ipairs(ns.Settings.nav) do
+		local on = b.Wash._shown ~= false and b.Bar._shown ~= false and rgba(b.Text._textColor, text)
+		if b.id == "voice" then voiceMarked = on end
+		if b.id == "notices" and (b.Wash._shown ~= false or b.Bar._shown ~= false) then noticesMarked = true end
+	end
+	check(voiceMarked and not noticesMarked, "the open settings section carries the accent")
+	ns.Settings.search:SetText("worktree")
+	ns.Settings.search:GetScript("OnTextChanged")(ns.Settings.search)
+	local shown = 0
+	for _, row in ipairs(ns.Settings.rows) do if row:IsShown() then shown = shown + 1 end end
+	check(ns.Settings.heading:GetText() == "Search" and shown == 1, "search shows only the matching setting")
+	ns.Settings.search:SetText("")
+	ns.Settings.section = "notices"
+	ns.Settings:Layout()
+	if rowThread then
+		local selected
+		for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
+			if r.ed.thread and r.ed.thread.id == ns.viewId then selected = r.frame end
+		end
+		check(selected and selected.AccentBar and selected.AccentBar._shown == true
+			and selected.AccentBar._color[1] == accent[1], "the selected thread carries the accent bar")
+		check(selected.Selected._atlas == nil and selected.Selected._color[1] == ns.Theme.MODERN.selected[1], "selection is a flat wash, not the game's art")
+	end
+	-- Menus, suggestions, the conversation and the list. The tracker is holding a
+	-- stand-in thread; these read the real ones, then the stand-in goes back.
+	local needThreads = ns.Store.data.threads
+	ns.Store.data.threads = savedTrackerThreads
+	local env, instanceId = ns.Main:NextProvider()
+	local model = f.Pages.threads.Right.Header.Model
+	local options = env and ns.Store:ModelOptions(env, nil)
+	check(options ~= nil, "the model menu has rows to open")
+	local pick
+	for _, o in ipairs(options) do if not o.header then pick = o.value break end end
+	local savedValue, savedOptions = model.value, model.options
+	model:SetOptions(options, pick)
+	ns.UI.OpenList(model)
+	local menu = ns.UI.ListOpen()
+	local headerGrey, checked = false, false
+	for _, r in ipairs(menu.Box._rows or {}) do
+		if r.ed.header and rgba(r.frame.Text._textColor, { 0.65, 0.68, 0.75, 1 }) then headerGrey = true end
+		if not r.ed.header and r.ed.value == pick and r.frame.Check and r.frame.Check._shown ~= false
+			and r.frame.Check._texture and r.frame.Check._texture:find("icons\\check", 1, true) then checked = true end
+	end
+	check(menu and painted(menu, theme.overlay) and headerGrey and checked, "a menu is a flat overlay, with a grey group title and a line check on the choice")
+	menu:Hide()
+	if savedOptions then model:SetOptions(savedOptions, savedValue) else model.value = savedValue end
+	local savedCommands = ns.Store.commands
+	ns.Store.commands = { [env] = { [instanceId] = { { t = "/compact", d = "Summarize" } } } }
+	local box = ns.Main.composer
+	local eb = box:GetEditBox()
+	local draft = box:GetInputText()
+	box._text, eb._cursor, box._focus = "/", 1, true
+	ns.Suggest:OnTextChanged(true)
+	local suggestions = ns.Suggest.frame
+	check(suggestions and suggestions:IsShown() and painted(suggestions, theme.overlay), "suggestions sit on the overlay")
+	check(suggestions.Rows[1].Selected._shown ~= false and rgba(suggestions.Rows[1].Selected._color, theme.selected), "the highlighted suggestion is a flat wash")
+	ns.Suggest:Close()
+	box:SetText(draft)
+	box._focus = false
+	ns.Store.commands = savedCommands
+	local savedView = ns.Store.data.view
+	ns.Transcript.answers = ns.Transcript.answers or {}
+	local savedAnswer = ns.Transcript.answers.qModern
+	ns.Transcript.answers.qModern = { q = { a = true } }
+	ns.Store.data.view = {
+		id = ns.viewId, msgs = { { r = "a", t = "|cffffd100Plan|r and |cffff4040no|r", at = time(), n = 1 } },
+		pending = { id = "qModern", kind = "question", questions = {
+			{ id = "q", q = "Ship it?", multi = true, opts = { { v = "a", l = "Yes" }, { v = "b", l = "No" } } },
+		} },
+	}
+	ns.Transcript:Refresh(true)
+	local yes, no, submit, note, msgRow
+	for _, r in ipairs(ns.Transcript.scrollBox._rows or {}) do
+		if r.ed.kind == "note" then note = r.frame
+		elseif r.ed.kind == "msg" then msgRow = r.frame
+		elseif r.ed.label == "Yes" then yes = r.frame
+		elseif r.ed.label == "No" then no = r.frame
+		elseif r.ed.primary then submit = r.frame end
+	end
+	check(msgRow and msgRow.Body:GetText() == "|c" .. ns.Theme.ACCENT_HEX .. "Plan|r and |cffff4040no|r", "a message's gold heading is drawn in the accent")
+	check(note and note.Icon._texture:find("icons\\arrow-right", 1, true) and rgba(note.Text._textColor, text), "a note uses a line icon and the title color")
+	check(yes and rgba(yes.Bullet._color, accent) and yes.Bullet._w == 10, "a chosen answer is a gold square")
+	check(no and rgba(no.Bullet._vertex, { 0.45, 0.45, 0.45, 1 }) and no.Bullet._w == 10 and rgba(labelOf(no)._textColor, muted), "an unchosen answer is a grey square, in the muted color")
+	check(submit and rgba(labelOf(submit)._textColor, text) and labelOf(submit)._shadow[2] == 0, "a primary answer drops the font shadow")
+	ns.Transcript.answers.qModern = savedAnswer
+	ns.Store.data.view = savedView
+	ns.Transcript:Refresh(true)
+	local savedCollapsed = ns.db.settings.collapsed.settled
+	ns.db.settings.collapsed.settled = false
+	ns.Store.data.threads = {
+		{ id = "live", title = "Working now", s = "working", l = "Editing", st = time() - 10, p = "p" },
+		{ id = "old", title = "Done already", s = "settled", u = time() - 3600, p = "p" },
+	}
+	ns.ThreadList:Refresh(true)
+	local group, settledRow
+	for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
+		if r.ed.header and not group then group = r.frame end
+		if r.ed.thread and r.ed.thread.s == "settled" then settledRow = r.frame end
+	end
+	check(group and group.Icon._texture:find("icons\\", 1, true) and painted(group, hairline), "a group header is a hairline and a line icon")
+	local liveRow
+	for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
+		if r.ed.thread and r.ed.thread.s == "working" then liveRow = r.frame end
+	end
+	check(liveRow and rgba(liveRow.Title._textColor, accent), "a thread's name in the list uses the accent")
+	check(settledRow and rgba(settledRow.Title._textColor, muted), "a settled thread's title is muted")
+	ns.db.settings.collapsed.settled = savedCollapsed
+	ns.Store.data.threads = needThreads
+	local savedUsage = ns.Store.data.usage
+	ns.Store.data.usage = { { name = "Codex", plan = "Pro", windows = {
+		{ label = "Weekly", used = 18, resets = time() + 86400 },
+		{ label = "Daily", used = 95, resets = time() + 3600 },
+	} } }
+	ns.Main:ShowPage("usage")
+	local cool, hot = ns.Usage.pool.row[1], ns.Usage.pool.row[2]
+	check(cool and rgba(cool.Bar.Bar._barColor, accent), "a usage bar under 70% is the gold accent")
+	check(hot and rgba(hot.Bar.Bar._barColor, { 0.8, 0.15, 0.1, 1 }), "a usage bar past 90% turns red")
+	check(painted(ns.Usage.pool.header[1], hairline), "a usage plan is underlined with a hairline")
+	ns.Store.data.usage = savedUsage
+	ns.Main:ShowPage(page)
+	-- Resize: the corner grip saves the size, clamped to the minimum.
+	local grip = f.ResizeGrip
+	check(grip ~= nil, "the window has a resize grip")
+	local gripMark
+	for _, r in ipairs(grip._regions or {}) do
+		if r._texture and tostring(r._texture):find("icons\\grip", 1, true) then gripMark = r end
+	end
+	check(gripMark and rgba(gripMark._vertex, muted), "the resize grip is a muted line mark")
+	grip._scripts.OnDragStart(grip)
+	f:SetSize(600, 400)
+	grip._scripts.OnDragStop(grip)
+	check(ns.db.settings.windowSize[1] == 760 and ns.db.settings.windowSize[2] == 480, "a resize below the minimum is clamped")
+	check(f._w == 760 and f._h == 480, "the window itself is clamped to the minimum")
+	grip._scripts.OnDragStart(grip)
+	f:SetSize(1100, 700)
+	grip._scripts.OnDragStop(grip)
+	check(ns.db.settings.windowSize[1] == 1100 and ns.db.settings.windowSize[2] == 700, "a resize is kept for next time")
+	ns.Main:ApplyListWidth(40)
+	check(ns.db.settings.listWidth == 180 and ns.Main.frame.Pages.threads.Left:GetWidth() == 180, "the thread list won't shrink past 180")
+	ns.Main:ApplyListWidth(9000)
+	local listMax = math.max(180, ns.Main.frame:GetWidth() - 420)
+	check(ns.db.settings.listWidth == listMax, "the thread list leaves room for the conversation")
+	ns.Main:ApplyListWidth(300)
+	local settingsScroll = ns.Settings.content and ns.Settings.content:GetParent()
+	local settingsBar = settingsScroll and settingsScroll.ScrollBar
+	check(settingsBar and settingsBar._shown == false, "the settings list has no black scrollbar")
+	settingsBar:Show()
+	check(settingsBar._shown == false, "the settings scrollbar stays hidden")
+	settingsScroll._vrange = 200
+	settingsScroll:GetScript("OnMouseWheel")(settingsScroll, -1)
+	check(settingsScroll._vscroll == 48, "the wheel scrolls the settings list")
+	settingsScroll:GetScript("OnMouseWheel")(settingsScroll, 1)
+	check(settingsScroll._vscroll == 0, "the wheel won't scroll past the top")
+	settingsScroll._vscroll = 190
+	settingsScroll:GetScript("OnMouseWheel")(settingsScroll, -1)
+	check(settingsScroll._vscroll == 200, "the wheel won't scroll past the end")
+	ns.Toasts:Preview()
+	local openThread = ns.viewId and ns.Store:Thread(ns.viewId)
+	local expectLast = (openThread and openThread.last) or "This is how a notice looks."
+	local sample
+	for _, fr in ipairs(ns.Toasts.frames) do
+		if fr.kind == "open" and fr.payload and fr.payload.last == expectLast then sample = fr end
+	end
+	check(sample and sample:IsShown() and sample.Text:GetText():find(expectLast, 1, true) and not sample.Text:GetText():find("|cff1eff00", 1, true) and rgba(sample.Bar._color, accent), "a test notice shows in the modern colors, on the accent bar")
+	ns.Main:ShowPage("settings")
+	for _, b in ipairs(ns.Settings.nav) do if b.id == "window" then b:Click() end end
+	check(ns.Settings.heading:GetText() == "Window", "settings can open on Window")
+	check(not ns.Settings.accent:GetParent():IsShown() and not ns.Settings.opacity:GetParent():IsShown(), "the window page leaves out accent and transparency")
+	for _, b in ipairs(ns.Settings.nav) do if b.id == "modern" then b:Click() end end
+	check(ns.Settings.heading:GetText() == "Modern" and ns.Settings.accent:GetParent():IsShown() and ns.Settings.opacity:GetParent():IsShown(), "accent and transparency are on the Modern page")
+	check(ns.Settings.opacity:GetValue() == 6 and ns.Settings.opacity.Text:GetText() == "6%" and math.abs(ns.Main.frame.ModernBg._color[4] - 0.94) < 0.001, "transparency starts at the dusk ground")
+	ns.Settings.opacity:SetValue(40)
+	check(ns.db.settings.windowClear == 40 and ns.Settings.opacity.Text:GetText() == "40%" and math.abs(ns.Main.frame.ModernBg._color[4] - 0.6) < 0.001 and math.abs(ns.Main.frame.ModernBand._color[4] - 0.6) < 0.001, "the transparency slider lets the world through the modern window")
+	ns.Settings.opacity:SetValue(0)
+	check(ns.db.settings.windowClear == 0 and ns.Main.frame.ModernBg._color[4] == 1, "solid puts the window back")
+	ns.db.settings.windowClear = 250
+	ns.Main:ApplyOpacity()
+	check(ns.Main.frame.ModernBg._color[4] == 0, "transparency stops at fully clear")
+	ns.db.settings.windowClear = -5
+	ns.Main:ApplyOpacity()
+	check(ns.Main.frame.ModernBg._color[4] == 1, "transparency stops at solid")
+	ns.db.settings.windowClear = nil
+	ns.Main:ApplyOpacity()
+	check(math.abs(ns.Main.frame.ModernBg._color[4] - 0.94) < 0.001, "a missing transparency uses the dusk ground")
+	ns.Settings.opacity:SetValue(100)
+	ns.Settings.opacity:GetScript("OnMouseWheel")(ns.Settings.opacity, 1)
+	check(ns.Settings.opacity:GetValue() == 100 and ns.db.settings.windowClear == 100, "the wheel won't pass fully clear")
+	ns.Settings.opacity:SetValue(0)
+	ns.Settings.opacity:GetScript("OnMouseWheel")(ns.Settings.opacity, -1)
+	check(ns.Settings.opacity:GetValue() == 0, "the wheel won't pass solid")
+	ns.Settings.opacity:SetValue(6)
+	check(ns.db.settings.windowClear == 6 and math.abs(ns.Main.frame.ModernBg._color[4] - 0.94) < 0.001, "the slider can return to the dusk ground")
+	ns.Settings.search:SetText("transparency")
+	ns.Settings.search:GetScript("OnTextChanged")(ns.Settings.search)
+	check(ns.Settings.opacity:GetParent():IsShown() and not ns.Settings.design:GetParent():IsShown(), "searching transparency finds it, and not the design")
+	ns.Settings.search:SetText("")
+	ns.Settings.search:GetScript("OnTextChanged")(ns.Settings.search)
+	check(ns.Settings.accent and ns.Settings.accent.value == "class" and ns.Settings.accent.Text:GetText() == "Class color", "settings lists the accent, starting on class color")
+	ns.Settings.accent.value = "verdigris"
+	local beforeAccent = ns.Main.frame
+	ns.Settings.accent:Step(1)
+	check(ns.Main.frame ~= beforeAccent and ns.db.settings.accent == "ice" and ns.Theme.ACCENT_HEX == "ff74c6de" and painted(ns.Main.frame.Bar.Send, ns.Theme.MODERN.accent), "picking the next accent repaints Start")
+	check(ns.Settings.section == "modern" and ns.Settings.heading:GetText() == "Modern", "picking an accent stays on the Modern page")
+	check(sample.payload and rgba(sample.Bar._color, ns.Theme.MODERN.accent) and rgba(sample.Title._textColor, ns.Theme.MODERN.accent), "the open notice takes the new accent")
+	local named
+	for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
+		if r.ed.thread and r.ed.thread.s ~= "settled" and r.ed.thread.s ~= "snoozed" then named = r.frame break end
+	end
+	check(named and rgba(named.Title._textColor, ns.Theme.MODERN.accent), "a thread name in the list takes the new accent")
+	ns.Theme.UseAccent("nope")
+	check(ns.Theme.ACCENT_HEX == "ff7fd2b3" and ns.Theme.MODERN.accent[1] == ns.Theme.ACCENTS[1].rgb[1], "an unknown accent is verdigris")
+	UnitClass = function() return "Hunter", "HUNTER" end
+	ns.Theme.UseAccent("class")
+	check(ns.Theme.MODERN.accent[1] == 0.67 and ns.Theme.MODERN.accent[2] == 0.83 and ns.Theme.MODERN.accent[3] == 0.45 and ns.Theme.ClassAccent().label == "Class color (Hunter)", "class color uses the player's class")
+	RAID_CLASS_COLORS = { HUNTER = { r = 0.2, g = 0.4, b = 0.6 } }
+	ns.Theme.UseAccent("class")
+	check(ns.Theme.MODERN.accent[1] == 0.2 and ns.Theme.ACCENT_HEX == "ff336699", "a changed class color wins over the built-in one")
+	RAID_CLASS_COLORS = nil
+	UnitClass = nil
+	ns.db.settings.accent = "verdigris"
+	ns.Theme.UseAccent("verdigris")
+	ns.Main:ShowPage(page)
+	ns.Settings.design:Step(-1)
+	local f3 = ns.Main.frame
+	check(f3 ~= f and not f3.ModernBg and ns.db.settings.theme == "classic", "choosing classic in the design dropdown rebuilds the game's window")
+	check(ns.Settings.design and ns.Settings.size and not ns.Settings.accent and not ns.Settings.opacity, "classic settings keep design and size, and leave out accent and transparency")
+	check(ns.Color("gold", "Start") == "|cffffd100Start|r" and ns.Theme.Markup("|cffffd100Plan|r") == "|cffffd100Plan|r", "classic headings stay the game's gold")
+	check(f3._w == 1100 and f3._h == 700, "the resized size carries across the design switch")
+	check(f3.ResizeGrip ~= nil, "the classic window resizes too")
+	check(not ns.Settings.checks[1].Fill, "classic checkboxes keep the game's own look")
+	check(tf.Header._shown ~= false and tf.Modern.Band._shown == false, "the classic tracker header returns")
+	check(tf.Lines[1].Sub:GetText():find("^- ", 1) ~= nil, "classic status keeps the tracker dash")
+	check(tf.Lines[1].Dot._shown ~= false, "the classic tracker dot is back")
+	check(notice.Bar._shown == false and notice._backdrop and notice._backdrop.edgeFile ~= nil, "a notice goes back to the gold border")
+	check(rgba(notice.Title._textColor, { 1, 0.82, 0, 1 }), "a notice title goes back to the game's gold")
+	local classicName
+	for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
+		if r.ed.thread and r.ed.thread.s ~= "settled" and r.ed.thread.s ~= "snoozed" then classicName = r.frame break end
+	end
+	check(classicName and rgba(classicName.Title._textColor, { 1, 0.82, 0, 1 }), "a thread name in the list goes back to the game's gold")
+	ns.Store.data.threads = savedTrackerThreads
+	ns.Tracker:Refresh()
+	check(f3.NineSlice and f3.NineSlice._shown ~= false, "the game's ornate border is back")
+	check(f3.TopTileStreaks and f3.TopTileStreaks._shown ~= false and f3.TitleBg._shown ~= false, "the classic frame keeps its title streaks")
+	check(f3:IsShown() and ns.Main.page == page, "still open on the same page after switching back")
+	ns.Main:ShowPage("settings")
+	check(ns.Settings.design.value == "classic", "the design dropdown follows the setting")
+	ns.Main:ShowPage("threads")
+	ns.Main:Refresh()
+	check(true, "the rebuilt window still refreshes")
 end
 
 -- Exhaustion
