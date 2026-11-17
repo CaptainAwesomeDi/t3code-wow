@@ -18,7 +18,15 @@ local function AccentChoices()
 	return options
 end
 
+-- Each choice rebuilds the window, so picking the one already set does nothing.
+local function ChooseDesign(value)
+	if value == (ns.db.settings.theme or "classic") then return end
+	ns.db.settings.theme = value
+	ns.Main:ApplyTheme()
+end
+
 local function ChooseAccent(value)
+	if value == (ns.db.settings.accent or "class") then return end
 	ns.db.settings.accent = value
 	if ns.db.settings.theme == "modern" then ns.Main:ApplyTheme() end
 end
@@ -136,10 +144,7 @@ function S:CreateClassic(page)
 	local designLabel = UI.Text(page, "GameFontHighlight")
 	designLabel:SetPoint("TOPLEFT", 22, y - 10)
 	designLabel:SetText("Design")
-	local design = UI.Dropdown(page, 240, function(value)
-		ns.db.settings.theme = value
-		ns.Main:ApplyTheme()
-	end)
+	local design = UI.Dropdown(page, 240, ChooseDesign)
 	design:SetPoint("LEFT", designLabel, "RIGHT", 16, 0)
 	design:SetOptions({
 		{ value = "classic", label = "Classic (the game's own look)" },
@@ -401,10 +406,7 @@ function S:CreateModern(page)
 	table.insert(self.rows, hear)
 	table.insert(self.controls, test)
 
-	self.design = ChoiceRow("window", "Design", "Classic uses the game's own frames. Modern is this flat dark look.", "design classic modern look", 220, function(value)
-		ns.db.settings.theme = value
-		ns.Main:ApplyTheme()
-	end)
+	self.design = ChoiceRow("window", "Design", "Classic uses the game's own frames. Modern is this flat dark look.", "design classic modern look", 220, ChooseDesign)
 	self.design:SetOptions({
 		{ value = "classic", label = "Classic (the game's own look)" },
 		{ value = "modern", label = "Modern (flat, dark)" },
