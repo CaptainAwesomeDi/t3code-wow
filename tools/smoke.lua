@@ -1913,6 +1913,26 @@ do
 	check(true, "the rebuilt window still refreshes")
 end
 
+-- Thread titles are cut on whole characters, measured a few times, not once a byte.
+do
+	local function chars(str) local n = 0 for _ in str:gmatch("[^\128-\191][\128-\191]*") do n = n + 1 end return n end
+	local calls = 0
+	local fs = { SetText = function(self, t) self.t = t end, GetStringWidth = function(self) calls = calls + 1 return chars(self.t) * 10 end }
+	local title = "Fix — the “bridge” crash 🙂 on Wine, then the ünit tests"
+	local okAll, maxCalls = true, 0
+	for w = 20, chars(title) * 10 - 10, 7 do
+		calls = 0
+		local out = ns.ThreadList.TrimTo(fs, title, w)
+		maxCalls = math.max(maxCalls, calls)
+		local body = out:sub(1, -4) -- without the ellipsis
+		local whole = title:sub(1, #body) == body and (#body == #title or not title:byte(#body + 1) or title:byte(#body + 1) < 0x80 or title:byte(#body + 1) >= 0xC0)
+		local longest = chars(out) * 10 <= w and chars(body) + 2 > w / 10
+		if not (whole and longest and fs.t == out) then okAll = false print("  trim at " .. w .. ": " .. out) end
+	end
+	check(okAll, "a cut title keeps whole characters and as much as fits")
+	check(maxCalls <= 8, "trimming a title measures it a handful of times: " .. maxCalls)
+end
+
 -- Exhaustion
 Stub.now = Stub.now + 2
 ns.Transport.slotCursor = ns.Transport.slotCount + 1

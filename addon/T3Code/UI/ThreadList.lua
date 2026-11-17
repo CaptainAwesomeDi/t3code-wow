@@ -29,13 +29,25 @@ local DOT_COLORS = {
 local function TrimTo(fs, text, maxW)
 	fs:SetText(text)
 	if (fs:GetStringWidth() or 0) <= maxW or maxW <= 0 then return text end
-	while #text > 1 do
-		text = string.sub(text, 1, #text - 1)
-		fs:SetText(text .. "…")
-		if (fs:GetStringWidth() or 0) <= maxW then break end
+	-- Where each character starts, so a cut never lands inside one.
+	local starts = {}
+	for i = 1, #text do
+		local c = text:byte(i)
+		if c < 0x80 or c >= 0xC0 then starts[#starts + 1] = i end
 	end
-	return text .. "…"
+	local function Prefix(n) return text:sub(1, (starts[n + 1] or #text + 1) - 1) end
+	-- The longest run of whole characters that fits with the ellipsis; at least one.
+	local lo, hi = 1, #starts - 1
+	while lo < hi do
+		local mid = math.floor((lo + hi + 1) / 2)
+		fs:SetText(Prefix(mid) .. "…")
+		if (fs:GetStringWidth() or 0) <= maxW then lo = mid else hi = mid - 1 end
+	end
+	text = Prefix(math.max(1, lo)) .. "…"
+	fs:SetText(text)
+	return text
 end
+L.TrimTo = TrimTo
 
 local function InitHeader(button, ed)
 	UI.InitGroupHeader(button)
