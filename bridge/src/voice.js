@@ -30,6 +30,50 @@ export function which(bin) {
   return null;
 }
 
+// A tts.command runs through a shell, which may start other programs (a pipeline into
+// a player, say). Stopping the reading must stop all of them, not just the shell. On
+// Linux and macOS the shell leads a process group of its own, ended as a whole. That
+// group is out of reach of what used to end it with the bridge (systemd's cgroup does,
+// launchd and a terminal don't), so groups still running are ended when the bridge
+// exits. Windows ends a Node program's children with it already; there `taskkill /T`
+// ends the shell's tree.
+const GROUPS = process.platform !== 'win32';
+const TASKKILL = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe');
+const liveGroups = new Set();
+let groupsHooked = false;
+
+function endGroup(pid) {
+  try {
+    process.kill(-pid, 'SIGTERM');
+  } catch {}
+}
+
+function keepGroup(child) {
+  if (!groupsHooked) {
+    groupsHooked = true;
+    process.on('exit', () => {
+      for (const pid of liveGroups) endGroup(pid);
+    });
+  }
+  liveGroups.add(child.pid);
+  child.on('exit', () => liveGroups.delete(child.pid));
+}
+
+/** Stops a reading's program and, for a tts.command, everything its shell started. */
+function stopReader(child) {
+  const running = child.exitCode === null && child.signalCode === null;
+  if (child.shellGroup) {
+    liveGroups.delete(child.pid);
+    if (running) endGroup(child.pid);
+  } else if (child.shellTree && running) {
+    spawn(TASKKILL, ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).on('error', () => child.kill());
+  } else {
+    try {
+      child.kill('SIGTERM');
+    } catch {}
+  }
+}
+
 export class Voice {
   constructor({ ttsCommand = null, rate = 0, log = () => {}, onSpeaking = () => {} } = {}) {
     this.ttsCommand = ttsCommand; // e.g. "piper-say" or "my-tts --stdin"; text arrives on stdin
@@ -89,9 +133,7 @@ export class Voice {
   // the next reading has started.
   silence() {
     if (this.current) {
-      try {
-        this.current.kill('SIGTERM');
-      } catch {}
+      stopReader(this.current);
       this.current = null;
     }
     const spd = which('spd-say');
@@ -110,7 +152,14 @@ export class Voice {
     this.silence();
     let child;
     if (engine.kind === 'custom') {
-      child = spawn(engine.cmd, { shell: true, stdio: ['pipe', 'ignore', 'ignore'] });
+      child = spawn(engine.cmd, { shell: true, detached: GROUPS, stdio: ['pipe', 'ignore', 'ignore'] });
+      // No pid: it didn't start, and the 'error' below says why.
+      if (child.pid && GROUPS) {
+        child.shellGroup = true;
+        keepGroup(child);
+      } else if (child.pid) {
+        child.shellTree = true;
+      }
       child.stdin.end(text);
     } else if (engine.kind === 'spd') {
       const args = ['--wait', '-e'];
