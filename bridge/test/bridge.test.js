@@ -839,7 +839,7 @@ test('the snapshot says whether the desktop voice is reading, and the last speec
   await settle();
   assert.ok(b.publishNow(), 'the addon hears the reading start');
   b.dirty = { important: false, minor: false, view: false };
-  await new Promise((resolve) => b.voice.current.once('exit', resolve));
+  await new Promise((resolve) => b.voice.current.child.once('exit', resolve));
   assert.deepEqual(b.buildSnapshot().speech, { on: undefined, cmd: 3 }, 'done when the voice finishes');
   assert.ok(b.dirty.important, 'with the window open, the end goes out like a status change');
   b.onFrame(frame(5, [hello, ['C', 4, 'speak', 't1', 'last']]));

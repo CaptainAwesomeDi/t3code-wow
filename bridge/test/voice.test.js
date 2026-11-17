@@ -13,7 +13,7 @@ test('a custom speech command gets the text on its standard input, through the s
   fs.writeFileSync(say, "let text = ''; process.stdin.on('data', (d) => (text += d)).on('end', () => require('node:fs').writeFileSync(process.argv[2], text));");
   const voice = new Voice({ ttsCommand: `"${process.execPath}" "${say}" "${heard}"` });
   assert.equal(voice.speak('Für Elise, twice'), true);
-  await new Promise((resolve) => voice.current.once('exit', resolve));
+  await new Promise((resolve) => voice.current.child.once('exit', resolve));
   assert.equal(fs.readFileSync(heard, 'utf8'), 'Für Elise, twice');
 });
 
@@ -32,7 +32,7 @@ test('a reading is speaking until its program exits or a hush stops it, and each
   assert.equal(voice.speaking, false);
   voice.speak('One');
   assert.equal(voice.speaking, true);
-  await new Promise((resolve) => voice.current.once('exit', resolve));
+  await new Promise((resolve) => voice.current.child.once('exit', resolve));
   assert.equal(voice.speaking, false, 'done once the program exits');
   voice.speak('Two');
   voice.speak('Three');
@@ -100,4 +100,23 @@ const wait = setInterval(() => { if (fs.existsSync(${JSON.stringify(pidFile)})) 
   const pid = Number(fs.readFileSync(pidFile, 'utf8'));
   t.after(() => alive(pid) && process.kill(pid, 'SIGKILL'));
   assert.ok(await until(() => !alive(pid)), 'the player stopped with the bridge');
+});
+
+test("speech-dispatcher's next reading waits for the cancel of the last, which would cut it off too", { skip: skipWindows }, async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 't3wow-voice-'));
+  const log = path.join(dir, 'log');
+  const savedPath = process.env.PATH;
+  t.after(() => {
+    process.env.PATH = savedPath;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  // A stand-in spd-say whose cancel takes a moment, as speech-dispatcher's can.
+  fs.writeFileSync(path.join(dir, 'spd-say'), `#!/bin/sh\nif [ "$1" = --cancel ]; then sleep 0.2; echo cancelled >> "${log}"; else cat > /dev/null; echo read >> "${log}"; fi\n`, { mode: 0o755 });
+  process.env.PATH = `${dir}${path.delimiter}${savedPath}`;
+  const voice = new Voice();
+  assert.equal(voice.ttsEngine().kind, 'spd');
+  voice.speak('Next reply');
+  assert.equal(voice.speaking, true, 'speaking from the click, while the cancel goes on');
+  assert.ok(await until(() => !voice.speaking), 'the reading went and ended');
+  assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), ['cancelled', 'read']);
 });
