@@ -88,7 +88,7 @@ The same install command works on CachyOS (or another Arch system) running KDE P
 - **Screen link.** KWin doesn't support the screen capture `grim` uses, so the bridge reads the game through KWin's own D-Bus screenshot interface with `busctl`, which ships with systemd. There's nothing to install or allow. The game must be on the current virtual desktop and not minimized.
 - **Screenshots** come out as JPEG when ImageMagick is installed (`sudo pacman -S imagemagick`), and as PNG otherwise.
 - **Speech** needs a desktop voice: `sudo pacman -S speech-dispatcher espeak-ng`. **Dictation** uses `voxtype` with `pw-record` if you have them. The Usage tab shows what T3 Code reports.
-- Other desktops on CachyOS: Hyprland works like Omarchy (install `grim`), and an X11 session uses ImageMagick's `import`. GNOME isn't supported, since it doesn't let other programs capture the screen without asking every time.
+- Other desktops on CachyOS: Hyprland works like Omarchy (install `grim`), and an X11 session prefers `maim` for fast region capture, with ImageMagick's `import` as a fallback. GNOME isn't supported, since it doesn't let other programs capture the screen without asking every time.
 
 ### Uninstall
 
