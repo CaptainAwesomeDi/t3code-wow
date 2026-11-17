@@ -478,6 +478,12 @@ function G:Move(dirKey)
 		end
 		return
 	end
+	-- Left and Right move a slider instead of the cursor.
+	if d[1] ~= 0 and cur.w.PadStep then
+		cur.w:PadStep(d[1])
+		PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+		return
+	end
 	if self:ExplicitMove(cur, dirKey) then
 		PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
 		return

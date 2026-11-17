@@ -679,6 +679,11 @@ function UI.Slider(parent, width, min, max, step, onChange, format)
 		local step = (self.step and self.step > 0) and self.step or ((self.max - self.min) / 20)
 		self:SetValue((self.value or self.min) + (delta > 0 and step or -step))
 	end)
+	-- The controller's D-pad: a twentieth of the range a press.
+	function b:PadStep(dir)
+		local step = math.max(self.step or 0, (self.max - self.min) / 20)
+		self:SetValue((self.value or self.min) + dir * step)
+	end
 	b:SetValue(min, true)
 	return b
 end

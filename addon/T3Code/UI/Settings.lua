@@ -434,6 +434,7 @@ function S:CreateModern(page)
 	clearRow.section = "modern"
 	clearRow.hay = "transparency opacity clear solid modern window"
 	table.insert(self.rows, clearRow)
+	table.insert(self.controls, opacity)
 	self.opacity = opacity
 
 	local infoRow = CreateFrame("Frame", nil, content)
