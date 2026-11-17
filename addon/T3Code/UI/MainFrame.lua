@@ -675,7 +675,7 @@ function M:ToggleSidebar(show)
 	self.frame.Bar.Back:ClearAllPoints()
 	local barY = Theme.Get() and BAR_Y_MODERN or 4
 	if show then
-		self.frame.Bar.Back:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", LIST_W + 18, barY)
+		self.frame.Bar.Back:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", self:ListWidth() + 18, barY)
 	else
 		self.frame.Bar.Back:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", 6, barY)
 	end
