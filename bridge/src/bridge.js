@@ -877,7 +877,7 @@ export class Bridge {
       else if (ACTIVE.has(status)) this.refreshView(t.id);
       if (before !== status) {
         this.markDirty('important');
-        if (belongsToParent(t)) return; // no announcements for subagent threads
+        if (this.underParent(t)) return; // no announcements for subagent threads
         // A snoozed thread stays quiet: the player asked not to hear about it yet.
         if (status === 'snoozed') return;
         if (BUSY.has(before) && !BUSY.has(status)) this.announce(t, status);
@@ -954,7 +954,7 @@ export class Bridge {
     let threads = [...t3.threads.values()]
       .map((t) => ({ t, s: this.statusOf(t) }))
       // Subagent threads only while they're busy, like T3's own sidebar.
-      .filter(({ t, s }) => s !== 'archived' && (!belongsToParent(t) || ACTIVE.has(s) || s === 'waiting'));
+      .filter(({ t, s }) => s !== 'archived' && (!this.underParent(t) || ACTIVE.has(s) || s === 'waiting'));
     threads.sort((a, b) => ORDER[a.s] - ORDER[b.s] || Date.parse(b.t.updatedAt) - Date.parse(a.t.updatedAt));
     let settled = 0;
     threads = threads.filter(({ s }) => s !== 'settled' || ++settled <= 30).slice(0, 90);
@@ -1378,6 +1378,17 @@ export class Bridge {
     this.publishCount = (this.publishCount || 0) + 1;
     if (this.config.verbose) this.log(`published gen ${gen} (${bytes} bytes) slots ${from}-${to} signals ${toRaise.join(',') || '-'}`);
     return true;
+  }
+
+  // Whether the game keeps `t` under the thread whose work it is, as T3 Code's sidebar
+  // does: listed only while busy, and never announced. A task another machine delegated
+  // here counts only while its sender is a thread this bridge knows and isn't archived;
+  // otherwise nothing in game leads to it, so it's listed and announced as the player's.
+  underParent(t) {
+    if (!belongsToParent(t)) return false;
+    if (t.delegatedFrom == null || t.lineage?.parentThreadId) return true;
+    const sender = t._from?.key ? this.t3.threads.get(t._from.key) : null;
+    return Boolean(sender && !sender.archivedAt);
   }
 
   writeStatus() {

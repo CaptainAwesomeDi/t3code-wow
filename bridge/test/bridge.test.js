@@ -1165,9 +1165,13 @@ test('ending a turn into waiting is not announced; the wait ending is', async ()
   assert.deepEqual(said, ['open']);
   b.onT3Change({ kind: 'thread', prev: running, thread: { ...running, id: 'kid', lineage: { parentThreadId: 'w' }, status: 'completed', activityRunStatus: null } });
   assert.deepEqual(said, ['open'], 'subagent threads are never announced');
-  const remote = { ...running, id: 'remote', delegatedFrom: { environmentId: 'e2', threadId: 'p', title: 'Parent' } };
+  b.t3.threads.set('e2~p', { id: 'e2~p', title: 'Parent', projectId: 'p1', status: 'running', activityRunStatus: 'running', updatedAt: base.updatedAt });
+  const remote = { ...running, id: 'remote', delegatedFrom: { environmentId: 'e2', threadId: 'p', title: 'Parent' }, _from: { key: 'e2~p', kind: 'sent' } };
   b.onT3Change({ kind: 'thread', prev: remote, thread: { ...remote, status: 'completed', activityRunStatus: null } });
   assert.deepEqual(said, ['open'], 'nor are tasks another machine delegated here');
+  const stray = { ...remote, id: 'stray', _from: { key: null, kind: 'sent' } };
+  b.onT3Change({ kind: 'thread', prev: stray, thread: { ...stray, status: 'completed', activityRunStatus: null } });
+  assert.deepEqual(said, ['open', 'open'], 'unless the bridge doesn\'t know the thread that sent it');
 });
 
 test('running subagent threads are listed, idle ones are not', async () => {
@@ -1225,18 +1229,27 @@ test('a task another machine delegated here is listed and counted like a subagen
   const { b } = fakeBridge();
   const now = new Date().toISOString();
   const delegatedFrom = { environmentId: 'e2', threadId: 'p', title: 'Parent' };
-  const busy = { id: 'busy-task', title: 'Busy', projectId: 'p1', status: 'running', activityRunStatus: 'running', delegatedFrom, updatedAt: now };
-  const idle = { id: 'idle-task', title: 'Idle', projectId: 'p1', status: 'completed', delegatedFrom, updatedAt: now };
+  const _from = { key: 'e2~p', kind: 'sent' };
+  const busy = { id: 'busy-task', title: 'Busy', projectId: 'p1', status: 'running', activityRunStatus: 'running', delegatedFrom, _from, updatedAt: now };
+  const idle = { id: 'idle-task', title: 'Idle', projectId: 'p1', status: 'completed', delegatedFrom, _from, updatedAt: now };
+  // As in T3 Code, one from a machine the bridge doesn't know has nothing to sit under.
+  const stray = { ...idle, id: 'stray-task', _from: { key: null, kind: 'sent' } };
   // A thread an agent launched for the player stores delegatedFrom: null and is its own thread.
   const handoff = { id: 'handoff', title: 'Handoff', projectId: 'p1', status: 'completed', delegatedFrom: null, updatedAt: now };
   const statusCount = () => (b.writeStatus(), JSON.parse(fs.readFileSync(b.statusFile, 'utf8')).t3.threads);
+  const sender = { id: 'e2~p', title: 'Parent', projectId: 'p1', status: 'completed', updatedAt: now };
+  b.t3.threads.set(sender.id, sender);
   const before = statusCount();
-  for (const t of [busy, idle, handoff]) b.t3.threads.set(t.id, t);
+  for (const t of [busy, idle, handoff, stray]) b.t3.threads.set(t.id, t);
   assert.equal(statusCount(), before + 1, 'the status file counts only the handoff');
-  const ids = b.buildSnapshot().threads.map((t) => t.id);
+  let ids = b.buildSnapshot().threads.map((t) => t.id);
   assert.ok(ids.includes('busy-task'), 'a running delegated task is listed');
   assert.ok(!ids.includes('idle-task'), 'an idle one is not');
   assert.ok(ids.includes('handoff'), 'a handoff thread is listed whatever its state');
+  assert.ok(ids.includes('stray-task'), 'an idle task from an unknown sender is listed');
+  b.t3.threads.set(sender.id, { ...sender, archivedAt: now });
+  ids = b.buildSnapshot().threads.map((t) => t.id);
+  assert.ok(ids.includes('idle-task'), 'and so is one whose sender was archived');
 
   const { Fleet } = await import('../src/fleet.js');
   const fleet = new Fleet({ localTokens: async () => 'x' });
