@@ -455,6 +455,21 @@ do
 	f.Bar.Speak:Click()
 	Stub.Fire("VOICE_CHAT_TTS_PLAYBACK_FAILED", 2, 13)
 	check(not ns.Reading(), "so does a reading the game couldn't play")
+	ns.Speak("First reply", ns.viewId, 1)
+	Stub.Fire("VOICE_CHAT_TTS_PLAYBACK_STARTED", 10)
+	ns.Speak("Second reply", ns.viewId, 2)
+	Stub.Fire("VOICE_CHAT_TTS_PLAYBACK_FINISHED", 10)
+	check(ns.Reading(ns.ReadingKey(ns.viewId, 2)), "the end of a reading the next one cut off leaves the next one red")
+	Stub.Fire("VOICE_CHAT_TTS_PLAYBACK_STARTED", 11)
+	check(ns.Reading(ns.ReadingKey(ns.viewId, 2)), "and so does the next one starting")
+	Stub.Fire("VOICE_CHAT_TTS_PLAYBACK_STARTED", 12)
+	check(not ns.Reading(), "another utterance starting while ours goes on cut ours off")
+	ns.Speak("Third reply", ns.viewId, 3)
+	Stub.Fire("VOICE_CHAT_TTS_PLAYBACK_STARTED", 13)
+	Stub.Fire("VOICE_CHAT_TTS_PLAYBACK_FINISHED", 12)
+	check(ns.Reading(), "only our utterance's end counts")
+	Stub.Fire("VOICE_CHAT_TTS_PLAYBACK_FINISHED", 13)
+	check(not ns.Reading(), "and it does")
 	C_VoiceChat.GetTtsVoices = function() return {} end
 	C_VoiceChat.SpeakText = function() end
 	C_VoiceChat.StopSpeakingText = function() end

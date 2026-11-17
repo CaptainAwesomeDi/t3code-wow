@@ -412,7 +412,7 @@ function ns.Speak(text, threadId, messageIndex)
 		local volume = C_TTSSettings and C_TTSSettings.GetSpeechVolume and C_TTSSettings.GetSpeechVolume() or 100
 		C_VoiceChat.StopSpeakingText()
 		C_VoiceChat.SpeakText(voice, ns.StripMarkup(text):sub(1, 2000), rate, volume, false)
-		SetReading({ voice = "game", key = key })
+		SetReading({ voice = "game", key = key, before = ns.GameUtterances() })
 		return true
 	end
 	ns.Print("No text-to-speech voice is available. Pick one in T3 Code settings.")
@@ -428,12 +428,42 @@ function ns.Hush()
 	SetReading(nil)
 end
 
--- The game's voice says when a reading ends, except one stopped with StopSpeakingText,
--- which is why Speak and Hush clear it themselves. As in the game's own chat reader,
--- any reading's end counts: one that started after ours was either queued behind it or
--- cut it off, and a reading cut off never says it ended.
-local function GameReadingEnded()
-	if reading and reading.voice == "game" then SetReading(nil) end
+-- The game's voice names each utterance: STARTED(utteranceID), FINISHED(utteranceID)
+-- and FAILED(utteranceID, status). SpeakText doesn't return the id, so ours is the first
+-- to start after it that wasn't already going. Only its end clears the speaker: a
+-- reading stopped with StopSpeakingText may still say it ended, after ours has started.
+-- An utterance that starts while ours goes on cut it off, and one cut off never says it
+-- ended, so that ends ours too. Speak and Hush clear what they stop themselves.
+local playing, playingCount = {}, 0
+
+-- The utterances going now, which a new reading's end mustn't be taken from.
+function ns.GameUtterances()
+	local copy = {}
+	for id in pairs(playing) do copy[id] = true end
+	return copy
+end
+
+local function Ours(id)
+	return reading and reading.voice == "game" and not reading.before[id]
+end
+
+ns:RegisterEvent("VOICE_CHAT_TTS_PLAYBACK_STARTED", function(id)
+	if id == nil then return end
+	-- An utterance stopped with StopSpeakingText may never say it ended: keep this short.
+	if playingCount >= 32 then playing, playingCount = {}, 0 end
+	if not playing[id] then playing[id], playingCount = true, playingCount + 1 end
+	if not Ours(id) then return end
+	if reading.utterance == nil then
+		reading.utterance = id
+	elseif reading.utterance ~= id then
+		SetReading(nil)
+	end
+end)
+
+local function GameReadingEnded(id)
+	if id ~= nil and playing[id] then playing[id], playingCount = nil, playingCount - 1 end
+	-- Before ours has started, an end that isn't one already going is ours failing.
+	if Ours(id) and (reading.utterance == nil or reading.utterance == id) then SetReading(nil) end
 end
 ns:RegisterEvent("VOICE_CHAT_TTS_PLAYBACK_FINISHED", GameReadingEnded)
 ns:RegisterEvent("VOICE_CHAT_TTS_PLAYBACK_FAILED", GameReadingEnded)
