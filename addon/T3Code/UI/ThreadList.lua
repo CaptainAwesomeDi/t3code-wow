@@ -15,6 +15,9 @@ local GROUPS = {
 	{ key = "settled", label = "Settled" },
 }
 
+-- The modern window's dots in the theme's own colors, by token.
+local DOT_TOKENS = { working = "blue", waiting = "muted", input = "orange", plan = "orange", failed = "red", unread = "blue" }
+
 local DOT_COLORS = {
 	working = { 0.29, 0.62, 1 },
 	waiting = { 0.55, 0.6, 0.7 },
@@ -29,13 +32,25 @@ local DOT_COLORS = {
 local function TrimTo(fs, text, maxW)
 	fs:SetText(text)
 	if (fs:GetStringWidth() or 0) <= maxW or maxW <= 0 then return text end
-	while #text > 1 do
-		text = string.sub(text, 1, #text - 1)
-		fs:SetText(text .. "…")
-		if (fs:GetStringWidth() or 0) <= maxW then break end
+	-- Where each character starts, so a cut never lands inside one.
+	local starts = {}
+	for i = 1, #text do
+		local c = text:byte(i)
+		if c < 0x80 or c >= 0xC0 then starts[#starts + 1] = i end
 	end
-	return text .. "…"
+	local function Prefix(n) return text:sub(1, (starts[n + 1] or #text + 1) - 1) end
+	-- The longest run of whole characters that fits with the ellipsis; at least one.
+	local lo, hi = 1, #starts - 1
+	while lo < hi do
+		local mid = math.floor((lo + hi + 1) / 2)
+		fs:SetText(Prefix(mid) .. "…")
+		if (fs:GetStringWidth() or 0) <= maxW then lo = mid else hi = mid - 1 end
+	end
+	text = Prefix(math.max(1, lo)) .. "…"
+	fs:SetText(text)
+	return text
 end
+L.TrimTo = TrimTo
 
 local function InitHeader(button, ed)
 	UI.InitGroupHeader(button)
@@ -86,28 +101,28 @@ local function CreateRow(button)
 	dot:SetMask("Interface\\CharacterFrame\\TempPortraitAlphaMask")
 	button.Dot = dot
 
-	-- GameFontNormal is the game's gold. On the dark ground a thread title is white,
-	-- and the accent is reserved for the selected row's bar.
-	local title = button:CreateFontString(nil, "ARTWORK", theme and "GameFontHighlight" or "GameFontNormal")
+	-- GameFontNormal is the game's gold. In the modern window a thread title is the
+	-- foreground, and the accent is reserved for the selected row.
+	local title = button:CreateFontString(nil, "ARTWORK", theme and "T3ModernBody" or "GameFontNormal")
 	title:SetPoint("TOPLEFT", 18, -7)
 	title:SetPoint("RIGHT", -74, 0)
 	title:SetJustifyH("LEFT")
 	title:SetWordWrap(false)
 	button.Title = title
 
-	local status = button:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	local status = button:CreateFontString(nil, "ARTWORK", ns.UI.Font("GameFontHighlightSmall"))
 	status:SetPoint("TOPRIGHT", -6, -8)
 	status:SetJustifyH("RIGHT")
 	button.Status = status
 
-	local sub = button:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	local sub = button:CreateFontString(nil, "ARTWORK", ns.UI.Font("GameFontDisableSmall"))
 	sub:SetPoint("BOTTOMLEFT", 18, 8)
 	sub:SetPoint("RIGHT", -60, 0)
 	sub:SetJustifyH("LEFT")
 	sub:SetWordWrap(false)
 	button.Sub = sub
 
-	local age = button:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	local age = button:CreateFontString(nil, "ARTWORK", ns.UI.Font("GameFontDisableSmall"))
 	age:SetPoint("BOTTOMRIGHT", -6, 8)
 	age:SetJustifyH("RIGHT")
 	button.Age = age
@@ -146,26 +161,23 @@ local function InitRow(button, ed)
 	local selected = t.id == ns.viewId and ns.Main.mode ~= "new"
 	button.Selected:SetShown(selected)
 	if button.AccentBar then button.AccentBar:SetShown(selected) end
-	-- A side chat indents under the thread it was forked from.
-	local indent = t.pt and 14 or 0
-	button.Dot:ClearAllPoints()
-	button.Dot:SetPoint("TOPLEFT", 6 + indent, -12)
-	button.Title:ClearAllPoints()
-	button.Title:SetPoint("TOPLEFT", 18 + indent, -7)
-	button.Sub:ClearAllPoints()
-	button.Sub:SetPoint("BOTTOMLEFT", 18 + indent, 8)
+	local theme = ns.Theme.Get()
+	-- The selected thread is bold, the kit's one change of weight; set the face
+	-- before measuring the title against the row.
+	if theme then button.Title:SetFontObject(selected and "T3ModernBodyBold" or "T3ModernBody") end
 	button.Title:SetText(t.title)
 	local rowW = button:GetWidth() or 0
-	TrimTo(button.Title, t.title, rowW - 18 - indent - 78)
-	local theme = ns.Theme.Get()
-	if t.s == "settled" or t.s == "snoozed" then
-		button.Title:SetTextColor(theme and theme.muted[1] or 0.75, theme and theme.muted[2] or 0.75, theme and theme.muted[3] or 0.75)
-	elseif theme then
-		button.Title:SetTextColor(theme.accent[1], theme.accent[2], theme.accent[3])
+	TrimTo(button.Title, t.title, rowW - 18 - 78)
+	if theme then
+		local ink = selected and theme.accent or ((t.s == "settled" or t.s == "snoozed") and theme.muted or theme.text)
+		ns.Theme.SetText(button.Title, ink)
+	elseif t.s == "settled" or t.s == "snoozed" then
+		button.Title:SetTextColor(0.75, 0.75, 0.75)
 	else
 		button.Title:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
 	end
 	local color = DOT_COLORS[t.s] or (t.un and DOT_COLORS.unread)
+	if theme and color then color = theme[DOT_TOKENS[t.s] or "blue"] end
 	button.Dot:SetShown(color ~= nil)
 	if color then button.Dot:SetVertexColor(color[1], color[2], color[3]) end
 	button.Status:SetText(ns.Color(ns.Store.StatusColor(t.s), ns.Store.StatusText(t.s)))
@@ -207,9 +219,9 @@ function L:Create(parent)
 	local theme = ns.Theme.Get()
 	if theme then
 		-- A flat well over the template's art; its magnifier stays on top.
-		local well = ns.Theme.Solid(search, theme.track, "ARTWORK")
+		local well = ns.Theme.Solid(search, theme.panel, "ARTWORK")
 		well:SetAllPoints()
-		ns.Theme.Edges(search, theme.hairline)
+		ns.Theme.Edges(search, theme.controlBorder)
 		ns.UI.UseLineSearch(search)
 	end
 	search:HookScript("OnTextChanged", function(box)

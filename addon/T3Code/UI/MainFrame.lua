@@ -30,7 +30,8 @@ M.BAR_KEYS = { "Refresh", "New", "Back", "Stop", "Mic", "Speak", "Shot", "Insert
 -- time. Made after the button bar so its corner sits on top of it.
 local function CreateResizeGrip(f)
 	f:SetResizable(true)
-	if f.SetResizeBounds then f:SetResizeBounds(MIN_W, MIN_H) end
+	local minW, minH = M:MinSize()
+	if f.SetResizeBounds then f:SetResizeBounds(minW, minH) end
 	local grip = CreateFrame("Frame", nil, f)
 	grip:SetSize(16, 16)
 	grip:SetPoint("BOTTOMRIGHT", -2, 2)
@@ -40,7 +41,7 @@ local function CreateResizeGrip(f)
 	grip:SetScript("OnDragStop", function()
 		f:StopMovingOrSizing()
 		local w, h = f:GetWidth(), f:GetHeight()
-		w, h = math.max(MIN_W, math.floor(w)), math.max(MIN_H, math.floor(h))
+		w, h = math.max(minW, math.floor(w)), math.max(minH, math.floor(h))
 		f:SetSize(w, h)
 		ns.db.settings.windowSize = { w, h }
 	end)
@@ -65,6 +66,13 @@ local function CreateResizeGrip(f)
 		grip:SetScript("OnLeave", function() mark:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up") end)
 	end
 	f.ResizeGrip = grip
+end
+
+-- The modern window can shrink. The classic pages are laid out for the default
+-- size and don't scroll, so the game's frame only grows.
+function M:MinSize()
+	if Theme.Get() then return MIN_W, MIN_H end
+	return WIDTH, HEIGHT
 end
 
 ---------------------------------------------------------------------------
@@ -122,7 +130,8 @@ function M:Create()
 	f:SetSize(WIDTH, HEIGHT)
 	local savedSize = ns.db.settings.windowSize
 	if savedSize then
-		f:SetSize(math.max(MIN_W, savedSize[1] or WIDTH), math.max(MIN_H, savedSize[2] or HEIGHT))
+		local minW, minH = self:MinSize()
+		f:SetSize(math.max(minW, savedSize[1] or WIDTH), math.max(minH, savedSize[2] or HEIGHT))
 	end
 	f:SetPoint("CENTER", 0, 20)
 	f:SetFrameStrata("HIGH")
@@ -133,8 +142,8 @@ function M:Create()
 	f:Hide()
 	f:SetTitle("T3 Code")
 	f:SetPortraitToAsset(ns.media .. "portrait")
-	-- The modern design hides the game's ornate frame and paints its own: one
-	-- flat navy, a hairline border, and the title on that same ground. The
+	-- The modern design hides the game's ornate frame and paints its own: the
+	-- theme's background, an accent edge, and the title on that same ground. The
 	-- template's top streaks are a black gradient; they stay hidden.
 	local theme = Theme.Get()
 	if theme then
@@ -155,11 +164,12 @@ function M:Create()
 			HideArt(f.Inset)
 		end
 		-- One ground for the whole window. Its alpha is the transparency setting.
-		local navy = { theme.windowBg[1], theme.windowBg[2], theme.windowBg[3], 1 }
-		f.ModernBg = Theme.Solid(f, navy)
+		local ground = { theme.windowBg[1], theme.windowBg[2], theme.windowBg[3], 1 }
+		f.ModernBg = Theme.Solid(f, ground)
 		f.ModernBg:SetAllPoints()
-		Theme.Edges(f, theme.hairline)
-		f.ModernBand = Theme.Solid(f, navy)
+		-- The window's edge is the theme's accent, as Hyprland draws the active window.
+		f.ModernEdges = { Theme.Edges(f, theme.popupBorder) }
+		f.ModernBand = Theme.Solid(f, ground)
 		f.ModernBand:SetHeight(BAND_H)
 		f.ModernBand:SetPoint("TOPLEFT")
 		f.ModernBand:SetPoint("TOPRIGHT")
@@ -196,7 +206,7 @@ function M:Create()
 				f.Inset:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -2, BAR_CLEAR)
 			end
 		end
-		f.ModernTitle = f:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+		f.ModernTitle = f:CreateFontString(nil, "ARTWORK", "T3ModernTitle")
 		f.ModernTitle:SetPoint("LEFT", f, "TOPLEFT", 12, -(BAND_H / 2))
 		f.ModernTitle:SetText("T3 Code")
 		-- Near-white. The accent stays on what's selected.
@@ -205,7 +215,7 @@ function M:Create()
 		local close = CreateFrame("Button", nil, f)
 		close:SetSize(16, 16)
 		close:SetPoint("TOPRIGHT", -6, -3)
-		close.Text = close:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+		close.Text = close:CreateFontString(nil, "ARTWORK", "T3ModernBody")
 		close.Text:SetPoint("CENTER", 0, 0)
 		close.Text:SetText("×")
 		local closeHl = Theme.Solid(close, theme.hover, "HIGHLIGHT")
@@ -248,12 +258,12 @@ function M:Create()
 	f.Status:SetWidth(WIDTH - 220)
 	if theme then
 		-- Same row as the title, so the thread name doesn't take a second line.
-		f.Subtitle:SetFontObject("GameFontHighlightSmall")
+		f.Subtitle:SetFontObject("T3ModernSmallDim")
 		f.Subtitle:ClearAllPoints()
 		f.Subtitle:SetPoint("LEFT", f.ModernTitle, "RIGHT", 12, 0)
 		f.Subtitle:SetJustifyH("LEFT")
 		f.Subtitle:SetWordWrap(false)
-		f.Status:SetFontObject("GameFontHighlightSmall")
+		f.Status:SetFontObject("T3ModernSmall")
 		f.Status:ClearAllPoints()
 		f.Status:SetJustifyH("RIGHT")
 		f.Status:SetWordWrap(false)
@@ -346,21 +356,30 @@ function M:Create()
 	return f
 end
 
+-- The widest the list may be in the window as it is now.
+function M:ListMax()
+	local f = self.frame
+	if not f then return math.huge end
+	return math.max(LIST_MIN, (f:GetWidth() or WIDTH) - LIST_KEEP)
+end
+
+-- The list's width as drawn: the width the player chose, narrowed while the window
+-- is too small for it.
 function M:ListWidth()
 	local w = (ns.db and ns.db.settings.listWidth) or LIST_W
-	return math.max(LIST_MIN, w)
+	return math.max(LIST_MIN, math.min(self:ListMax(), w))
 end
 
 -- The thread list's width, kept between a readable minimum and whatever still
--- leaves the conversation room. Moves the Back button with it.
-function M:ApplyListWidth(w)
+-- leaves the conversation room. Moves the Back button with it. Only a drag on the
+-- divider (`save`) changes the width kept for next time; a smaller window narrows
+-- the list without forgetting it.
+function M:ApplyListWidth(w, save)
 	local f = self.frame
 	local page = f and f.Pages and f.Pages.threads
 	if not page or not page.Left then return end
-	local frameW = f:GetWidth() or WIDTH
-	local maxW = math.max(LIST_MIN, frameW - LIST_KEEP)
-	w = math.max(LIST_MIN, math.min(maxW, math.floor(w or LIST_W)))
-	ns.db.settings.listWidth = w
+	w = math.max(LIST_MIN, math.min(self:ListMax(), math.floor(w or LIST_W)))
+	if save then ns.db.settings.listWidth = w end
 	page.Left:SetWidth(w)
 	if page.Left:IsShown() and f.Bar and f.Bar.Back then
 		local barY = Theme.Get() and BAR_Y_MODERN or 4
@@ -417,7 +436,7 @@ function M:CreateThreadsPage(page)
 			local scale = page:GetEffectiveScale() or 1
 			local x = GetCursorPosition() / scale
 			local origin = page:GetLeft() or 0
-			M:ApplyListWidth(x - origin)
+			M:ApplyListWidth(x - origin, true)
 		end)
 	end)
 	split:SetScript("OnMouseUp", function(self)
@@ -516,7 +535,7 @@ function M:CreateThreadsPage(page)
 	composer:SetHeight(COMPOSER_H)
 	right.ComposerInset = composer
 
-	local box = CreateFrame("Frame", nil, composer, "T3CodeComposerTemplate")
+	local box = CreateFrame("Frame", nil, composer, theme and "T3CodeComposerModernTemplate" or "T3CodeComposerTemplate")
 	box:SetPoint("TOPLEFT", 8, -6)
 	box:SetPoint("BOTTOMRIGHT", -8, 18)
 	box:RegisterCallback("OnEnterPressed", function()
@@ -588,6 +607,10 @@ function M:CreateButtonBar(f)
 	end)
 
 	bar.Speak = UI.IconButton(f, "voicechat-icon-speaker", 26, "Read aloud", function()
+		if ns.Reading() then
+			ns.Hush()
+			return
+		end
 		local v = ns.Store:View()
 		local last
 		if v and v.msgs then
@@ -606,7 +629,9 @@ function M:CreateButtonBar(f)
 		if button == "RightButton" then M:RemoveScreenshots() else M:AttachScreenshot() end
 	end)
 	UI.Tooltip(bar.Shot, "Attach a screenshot", "Adds a screenshot of the game to your next message. Right-click to remove it. /t3 report also adds diagnostics.")
-	UI.Tooltip(bar.Speak, nil, "Read the latest reply aloud.")
+	UI.Tooltip(bar.Speak, nil, function()
+		return ns.Reading() and "Stop reading aloud." or "Read the latest reply aloud."
+	end)
 
 	-- The "/" and "$" suggestions as a list, for a controller, which can't type them.
 	-- It opens the shared list, so it carries what the list reads from its owner.
@@ -666,7 +691,7 @@ function M:ToggleSidebar(show)
 	self.frame.Bar.Back:ClearAllPoints()
 	local barY = Theme.Get() and BAR_Y_MODERN or 4
 	if show then
-		self.frame.Bar.Back:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", LIST_W + 18, barY)
+		self.frame.Bar.Back:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", self:ListWidth() + 18, barY)
 	else
 		self.frame.Bar.Back:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", 6, barY)
 	end
@@ -818,7 +843,7 @@ function M:OpenCustomSnooze()
 		if theme then
 			Theme.Paint(bg, theme.overlay)
 			bg:SetAllPoints()
-			Theme.Edges(p, theme.hairline)
+			Theme.Edges(p, theme.popupBorder)
 		else
 			bg:SetAtlas("common-dropdown-bg")
 			bg:SetPoint("TOPLEFT", -10, 3)
@@ -840,6 +865,21 @@ function M:OpenCustomSnooze()
 		p.Box:SetMaxLetters(40)
 		p.Box:SetScript("OnEnterPressed", function() M:SubmitCustomSnooze() end)
 		p.Box:SetScript("OnEscapePressed", function() p:Hide() end)
+		if theme then
+			-- The kit's input: glass with a border, the text in the foreground.
+			for _, key in ipairs({ "Left", "Middle", "Right" }) do
+				if p.Box[key] then p.Box[key]:Hide() end
+			end
+			local well = Theme.Solid(p.Box, theme.panel)
+			well:SetPoint("TOPLEFT", -6, 0)
+			well:SetPoint("BOTTOMRIGHT")
+			p.Box:SetFontObject("T3ModernBody")
+			p.Box:SetTextInsets(0, 4, 0, 0)
+			local edge = CreateFrame("Frame", nil, p.Box)
+			edge:SetPoint("TOPLEFT", -6, 0)
+			edge:SetPoint("BOTTOMRIGHT")
+			Theme.Edges(edge, theme.controlBorder)
+		end
 		p.Go = UI.Button(p, "Snooze", 76, function() M:SubmitCustomSnooze() end)
 		p.Go:SetPoint("LEFT", p.Box, "RIGHT", 6, 0)
 		p.Hint = UI.Text(p, "GameFontDisableSmall", "LEFT")
@@ -1025,6 +1065,14 @@ function M:ShotHint()
 	end
 end
 
+-- The line under the message box: the screenshots attached, else on a thread what the
+-- controller's buttons do.
+function M:ShowHint()
+	local hint = self:ShotHint()
+	if not hint and self.mode ~= "new" and ns.Gamepad and ns.Gamepad:IsActive() then hint = ns.Gamepad:HintText() end
+	self.frame.Pages.threads.Right.Hint:SetText(hint or "")
+end
+
 function M:AttachScreenshot()
 	local key = self:ShotKey()
 	if not key then
@@ -1156,6 +1204,7 @@ local LINK_TEXT = {
 	waiting = { "orange", "Waiting for the bridge… (run t3code-wow install on your desktop)" },
 	stale = { "red", "Bridge not responding — is t3code-wow running?" },
 	t3offline = { "red", "Bridge connected, but T3 Code is offline" },
+	unheard = { "red", "T3 Code can't hear the game. Keep its top-left corner uncovered, and check t3code-wow status on your desktop." },
 	exhausted = { "orange", "Live updates paused — /reload to resume" },
 }
 
@@ -1167,7 +1216,7 @@ function M:StatusLine()
 	local state = T:BridgeState()
 	local entry = LINK_TEXT[state] or LINK_TEXT.waiting
 	local text = ns.Color(entry[1], entry[2])
-	if #T.queue > 0 then
+	if #T.queue > 0 and state ~= "unheard" then
 		text = text .. ns.Color("grey", "  ·  sending…")
 	end
 	local left = T:SlotsLeft()
@@ -1178,6 +1227,8 @@ function M:StatusLine()
 		text = text .. ns.Color("orange", "  ·  listening… release to finish")
 	elseif self.dictState == "transcribing" then
 		text = text .. ns.Color("orange", "  ·  transcribing…")
+	elseif ns.Reading() then
+		text = text .. ns.Color("orange", "  ·  reading aloud…")
 	end
 	return text
 end
@@ -1275,6 +1326,13 @@ function M:Refresh()
 			right.Hint:SetText(self:ShotHint() or "")
 			f.Bar.Send:SetText("Start")
 		end
+		header.Text:ClearAllPoints()
+		header.Text:SetPoint("LEFT", 12, 0)
+		header.Text:SetPoint("RIGHT", header.Project, "LEFT", -8, 0)
+		header.Text:SetJustifyH("RIGHT")
+		self:SetPlaceholder("Describe what the agent should do  (Shift+Enter for a new line)")
+		self:ShowHint()
+		f.Bar.Send:SetText("Start")
 	else
 		header.Text:ClearAllPoints()
 		header.Text:SetPoint("LEFT", 12, 0)
@@ -1344,7 +1402,7 @@ function M:Refresh()
 			header.Model:Hide()
 			header.Effort:Hide()
 		end
-		right.Hint:SetText(self:ShotHint() or (ns.Gamepad and ns.Gamepad:IsActive() and ns.Gamepad:HintText()) or "")
+		self:ShowHint()
 	end
 	f.Bar.Stop:SetEnabled(t ~= nil and (t.s == "working" or t.run) and self.mode ~= "new")
 	local fam = self.mode ~= "new" and ns.Store:Family()
@@ -1354,7 +1412,9 @@ function M:Refresh()
 	local canDictate = self.dictating or not (bridge and bridge.dictationHint)
 	f.Bar.Mic:SetEnabled(canDictate)
 	f.Bar.Mic.Icon:SetDesaturated(not canDictate)
-	f.Bar.Mic.Icon:SetVertexColor(self.dictating and 1 or 1, self.dictating and 0.3 or 1, self.dictating and 0.3 or 1)
+	UI.TintActive(f.Bar.Mic.Icon, self.dictating)
+	local reading = ns.Reading()
+	UI.TintActive(f.Bar.Speak.Icon, reading)
 	f.Bar.Back:SetEnabled(self.mode == "new" or ns.viewId ~= nil or not f.Pages.threads.Left:IsShown())
 	local commands = ns.Store:Commands(self:NextProvider())
 	f.Bar.Insert:SetEnabled(commands ~= nil)
@@ -1364,6 +1424,7 @@ function M:Refresh()
 	ns.ThreadList:Refresh()
 	ns.Family:Refresh()
 	ns.Transcript:Refresh()
+	ns.Transcript:ShowReading()
 	-- The thread title belongs to the threads page. The other pages name themselves.
 	if Theme.Get() and self.page ~= "threads" then
 		f.Subtitle:SetText(self.page == "usage" and "Usage" or "Settings")
@@ -1586,7 +1647,7 @@ function M:HandleDictation(d)
 		ns.Print("Didn't catch anything — hold to talk and try again.")
 	elseif d.state == "error" then
 		self.dictState = nil
-		ns.Print(ns.Color("red", "Dictation: " .. (d.err or "failed")))
+		ns.Print(ns.ChatColor("red", "Dictation: " .. (d.err or "failed")))
 	elseif d.state == "cancelled" then
 		self.dictState = nil
 	end
@@ -1598,6 +1659,9 @@ ns:On("DataChanged", function()
 end)
 
 ns:On("DataChanged", function()
+	if M.frame and M.frame:IsShown() then M:Refresh() end
+end)
+ns:On("ReadingChanged", function()
 	if M.frame and M.frame:IsShown() then M:Refresh() end
 end)
 ns:On("LinkChanged", function()
@@ -1628,7 +1692,7 @@ ns:On("CommandResult", function(r)
 	end
 	if r.ok == false and M.pendingSnooze and r.id == M.pendingSnooze.cmd then M.pendingSnooze = nil end
 	if r.ok == false and r.msg then
-		ns.Print(ns.Color("red", r.msg))
+		ns.Print(ns.ChatColor("red", r.msg))
 		if UIErrorsFrame then UIErrorsFrame:AddMessage("T3 Code: " .. r.msg, 1, 0.2, 0.2) end
 	end
 	if r.ok == false then

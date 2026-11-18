@@ -65,6 +65,16 @@ export function waitingOn(t) {
   return t.blockedOnThreadWait && (t.activityRunStatus ?? t.status) === 'running' ? 'Waiting on another thread' : null;
 }
 
+// A thread that is part of another's work: a subagent, a side chat, or a task another
+// machine's thread delegated here. The game lists one only while it is busy and never
+// announces it. A fork has a parent too, but is a thread of its own.
+export function belongsToParent(t) {
+  const { parentThreadId, relationshipToParent, sideChat } = t.lineage || {};
+  // A server that names no relationship: any parent is a subagent, as it was read before.
+  const inParent = relationshipToParent === undefined ? Boolean(parentThreadId) : relationshipToParent === 'subagent' || sideChat === true;
+  return inParent || t.delegatedFrom != null;
+}
+
 export function isUnread(t) {
   const done = t.latestRunCompletedAt ? Date.parse(t.latestRunCompletedAt) : 0;
   const seen = t.lastVisitedAt ? Date.parse(t.lastVisitedAt) : 0;
@@ -82,7 +92,7 @@ export function pickModelSelection({ project, settings = {}, threads = [], provi
   }
   // Subagent threads run on whatever model their parent delegated to: not a choice.
   const latest = threads
-    .filter((t) => !t.deletedAt && !t.lineage?.parentThreadId && enabled(t.modelSelection))
+    .filter((t) => !t.deletedAt && !belongsToParent(t) && enabled(t.modelSelection))
     .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
   return (latest.find((t) => project && t.projectId === project.id) || latest[0])?.modelSelection || null;
 }
@@ -159,7 +169,7 @@ export function chosenModelSelection({ instanceId, model }, { providers, candida
     // the level this carries over.
     const active = (t) => Date.parse(t.activityRunStartedAt || t.latestRunStartedAt || t.updatedAt || t.createdAt || 0);
     const latest = threads
-      .filter((t) => !t.deletedAt && !t.lineage?.parentThreadId && same(t.modelSelection))
+      .filter((t) => !t.deletedAt && !belongsToParent(t) && same(t.modelSelection))
       .sort((a, b) => active(b) - active(a))[0];
     options = latest?.modelSelection.options;
   }
@@ -424,7 +434,8 @@ export class T3Client extends EventEmitter {
 
   sendMessage(threadId, text, mode = 'auto', attachments = []) {
     const t = this.threads.get(threadId);
-    const busy = t && threadStatus(t) === 'working';
+    // A run that waits (on a subagent, another thread) is still a run: queue behind it.
+    const busy = t && isRunning(t);
     let dispatchMode = { type: 'start_immediately' };
     if (mode === 'steer' && t?.activeRunId) dispatchMode = { type: 'steer_active', targetRunId: t.activeRunId };
     else if (mode !== 'start' && busy) dispatchMode = { type: 'queue_after_active' };

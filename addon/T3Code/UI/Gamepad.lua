@@ -124,7 +124,13 @@ local function EnsurePointer(f)
 	glow = CreateFrame("Frame", nil, f, "BackdropTemplate")
 	glow:SetFrameStrata("TOOLTIP")
 	glow:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 14 })
-	glow:SetBackdropBorderColor(1, 0.82, 0, 0.9)
+	-- The controller's cursor: the game's gold, or the accent in the modern window.
+	local theme = ns.Theme.Get()
+	if theme then
+		glow:SetBackdropBorderColor(theme.accent[1], theme.accent[2], theme.accent[3], 0.9)
+	else
+		glow:SetBackdropBorderColor(1, 0.82, 0, 0.9)
+	end
 	glow:EnableMouse(false)
 	pointer:EnableMouse(false)
 	pointer:Hide()
@@ -192,6 +198,8 @@ function G:Highlight(w)
 	end
 	self.selected = w
 	self.selectedKey = w and KeyOfFrame(w) or nil
+	-- What X does depends on the row under the cursor, and the hint says it.
+	if ns.Main.frame and ns.Main.frame:IsShown() then ns.Main:ShowHint() end
 	if not w then
 		if pointer then pointer:Hide() glow:Hide() end
 		return
@@ -204,6 +212,17 @@ function G:Highlight(w)
 	glow:SetPoint("TOPLEFT", w, "TOPLEFT", -4, 4)
 	glow:SetPoint("BOTTOMRIGHT", w, "BOTTOMRIGHT", 4, -4)
 	glow:Show()
+end
+
+-- What X does on the threads page: on a thread that isn't the open one, it reads that
+-- thread's latest reply, or stops it while that is read; anywhere else it does what the
+-- bar's speaker does. Returns that thread, or nil for the speaker, and whether the press
+-- stops a reading.
+function G:ReadAloudTarget()
+	local cur = self:Validate()
+	local t = cur and cur.ed and cur.ed.thread
+	if t and t.id ~= ns.viewId then return t, ns.Reading(ns.ReadingKey(t.id, "last")) end
+	return nil, ns.Reading()
 end
 
 function G:Validate()
@@ -466,6 +485,12 @@ function G:Move(dirKey)
 		end
 		return
 	end
+	-- Left and Right move a slider instead of the cursor.
+	if d[1] ~= 0 and cur.w.PadStep then
+		cur.w:PadStep(d[1])
+		PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+		return
+	end
 	if self:ExplicitMove(cur, dirKey) then
 		PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
 		return
@@ -589,12 +614,13 @@ function G:OnButtonDown(key)
 		Back()
 	elseif key == "PAD3" then
 		if main.page == "threads" then
-			local cur = self:Validate()
-			local t = cur and cur.ed and cur.ed.thread
-			if t and t.id ~= ns.viewId then
-				ns.Speak(t.last or t.title, t.id, "last")
-			else
+			local t, stops = self:ReadAloudTarget()
+			if not t then
 				main.frame.Bar.Speak:Click()
+			elseif stops then
+				ns.Hush()
+			else
+				ns.Speak(t.last or t.title, t.id, "last")
 			end
 		end
 	elseif key == "PAD4" then
@@ -707,8 +733,9 @@ local function Bumper(button)
 end
 
 function G:HintText()
-	return string.format("%s select   %s back   %s hold to talk   %s read aloud   %s%s tabs",
-		UI.Glyph("PAD1", 14), UI.Glyph("PAD2", 14), UI.Glyph("PAD4", 14), UI.Glyph("PAD3", 14), Bumper("PADLSHOULDER"), Bumper("PADRSHOULDER"))
+	local _, stops = self:ReadAloudTarget()
+	return string.format("%s select   %s back   %s hold to talk   %s %s   %s%s tabs",
+		UI.Glyph("PAD1", 14), UI.Glyph("PAD2", 14), UI.Glyph("PAD4", 14), UI.Glyph("PAD3", 14), stops and "stop reading" or "read aloud", Bumper("PADLSHOULDER"), Bumper("PADRSHOULDER"))
 end
 
 function G:HelpText()

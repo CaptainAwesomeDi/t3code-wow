@@ -88,7 +88,7 @@ The same install command works on CachyOS (or another Arch system) running KDE P
 - **Screen link.** KWin doesn't support the screen capture `grim` uses, so the bridge reads the game through KWin's own D-Bus screenshot interface with `busctl`, which ships with systemd. There's nothing to install or allow. The game must be on the current virtual desktop and not minimized.
 - **Screenshots** come out as JPEG when ImageMagick is installed (`sudo pacman -S imagemagick`), and as PNG otherwise.
 - **Speech** needs a desktop voice: `sudo pacman -S speech-dispatcher espeak-ng`. **Dictation** uses `voxtype` with `pw-record` if you have them. The Usage tab shows what T3 Code reports.
-- Other desktops on CachyOS: Hyprland works like Omarchy (install `grim`), and an X11 session uses ImageMagick's `import`. GNOME isn't supported, since it doesn't let other programs capture the screen without asking every time.
+- Other desktops on CachyOS: Hyprland works like Omarchy (install `grim`), and an X11 session prefers `maim` for fast region capture, with ImageMagick's `import` as a fallback. GNOME isn't supported, since it doesn't let other programs capture the screen without asking every time.
 
 ### Uninstall
 
@@ -146,6 +146,7 @@ Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before
 
 - [wow-ai](https://github.com/chelinho139/wow-ai) and [wow-forever-codex](https://github.com/0xinuarashi/wow-forever-codex) measured how the Forever client loads files, plays sounds and handles the gamepad. The strip-and-slot approach builds on their work.
 - [Bellular](https://www.youtube.com/@BellularGaming) ([@BellularGaming](https://x.com/BellularGaming)) gave the idea of making this an in-game addon instead of a desktop overlay.
+- The modern design draws in [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono), under the SIL Open Font License 1.1 (`addon/T3Code/Media/fonts/OFL.txt`).
 
 ## License
 

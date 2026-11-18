@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto';
 import { RS, US } from './codec.js';
 import { StripCapture } from './capture.js';
 import { SlotBank, replaceFile, FileInUse } from './slots.js';
-import { threadStatus, isUnread, effortOf, waitingOn, isRunning } from './t3.js';
+import { threadStatus, isUnread, effortOf, waitingOn, isRunning, belongsToParent } from './t3.js';
 import { Fleet } from './fleet.js';
 import { threadFamily } from './family.js';
 import { tokenProvider } from './auth.js';
@@ -27,7 +27,7 @@ import { findWowProcess, processKey } from './wow.js';
 import { markdownToWow, markdownToSpeech, firstLine, escapeWow } from './format.js';
 import { loadOrCreateKey, deriveKeys, open as openSealed, ENCRYPTED_VERSION } from './strip-crypto.js';
 
-export const VERSION = '0.5.0';
+export const VERSION = '0.6.0';
 export const STATE_DIR = path.join(process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local/state'), 't3code-wow');
 
 const sec = (iso) => (iso ? Math.floor(Date.parse(iso) / 1000) : undefined);
@@ -50,6 +50,7 @@ const PARTS = [
 ];
 
 const ACTIVE = new Set(['working', 'input', 'plan']);
+const SPEECH_VERBS = new Set(['speak', 'say', 'hush']);
 const ORDER = { input: 0, plan: 1, working: 2, waiting: 3, failed: 4, open: 5, snoozed: 6, settled: 7 };
 // Busy, from the player's point of view: the agent isn't done with the thread yet.
 const BUSY = new Set(['working', 'waiting']);
@@ -173,6 +174,20 @@ export function runSummary(projection, now = Date.now()) {
   }
   if (!parts.length) return null;
   return `${run.completedAt ? 'Last run' : 'This run so far'}: ${parts.join(' · ')}`;
+}
+
+// T3 Code queues some user messages for the agent itself: a notification, such as
+// a watched pull request changing, or a delegated task's result. Nobody typed
+// those, and T3 Code leaves them out of its own queued count the same way.
+function isT3Notice(m) {
+  return m.role === 'user' && (m.notification !== undefined || m.delegatedCompletion !== undefined);
+}
+
+// Follow-ups the player sent that wait behind the run going on. T3 Code queues
+// its own messages the same way, and those are not the player's to count.
+function queuedFollowUps(p) {
+  const notices = new Set((p.messages || []).filter(isT3Notice).map((m) => m.id));
+  return (p.runs || []).filter((r) => r.status === 'queued' && !notices.has(r.userMessageId)).length;
 }
 
 export function proposedPlan(projection) {
@@ -324,7 +339,7 @@ export class Bridge {
     this.tokens = tokenProvider({ log: this.log });
     // Every T3 Code machine we show: this one, plus any added with `t3code-wow env add`.
     this.t3 = new Fleet({ localTokens: this.tokens, environments: config.environments || [], log: this.log });
-    this.voice = new Voice({ ttsCommand: config.tts?.command || null, rate: config.tts?.rate || 0, log: this.log });
+    this.voice = new Voice({ ttsCommand: config.tts?.command || null, rate: config.tts?.rate || 0, log: this.log, onSpeaking: () => this.onSpeaking() });
     this.stateDir = stateDir;
     this.stateFile = path.join(stateDir, 'state.json');
     this.statusFile = path.join(stateDir, 'status.json');
@@ -507,6 +522,10 @@ export class Bridge {
     if (!c || c.ui !== hello.ui || c.session !== hello.session) {
       this.log(`addon connected (ui ${hello.ui}, slot ${hello.slot}, signal ${hello.sig}, addon ${hello.version})`);
       c = this.client = { session: hello.session, ui: hello.ui, ackedSeq: -1, flags: '', view: '', hashes: {} };
+      // The commands it sent before reached this bridge or one that has stopped since,
+      // so as far as speech goes they are over. Without this, a speaker left red by a
+      // bridge that restarted while reading would wait for a command that never runs.
+      c.speechCmd = this.persist.handled[hello.session];
       c.slotNext = hello.slot;
       this.persist.sigCounter = Math.max(this.persist.sigCounter, hello.sig);
       this.markDirty('important');
@@ -518,8 +537,10 @@ export class Bridge {
     c.encrypted = sealed;
     if (c.flags !== hello.flags) {
       const wasQuiet = c.flags.includes('q');
+      const opened = !c.flags.includes('o') && hello.flags.includes('o');
       c.flags = hello.flags;
-      this.markDirty('minor');
+      // A reading that ended while the window was closed: its speaker is still red.
+      this.markDirty(opened && this.sentSpeaking && !this.voice.speaking ? 'important' : 'minor');
       // Out of combat / a quiet instance: read the held announcement now.
       if (wasQuiet && !c.flags.includes('q') && this.deferredAnnounce) {
         const { thread, status } = this.deferredAnnounce;
@@ -581,6 +602,9 @@ export class Bridge {
   async runCommand(cmd) {
     const [a0, a1, a2] = cmd.args;
     this.log(`command ${cmd.id}: ${cmd.verb} ${cmd.verb === 'send' || cmd.verb === 'new' ? a0 : cmd.args.join(' ').slice(0, 80)}`);
+    // Commands run side by side, and `speak` waits for the reply's text: a stop or another
+    // read that arrives meanwhile is the player's latest word, so that text isn't read.
+    if (SPEECH_VERBS.has(cmd.verb)) this.latestSpeech = cmd;
     let ok = true;
     let msg = null;
     try {
@@ -691,9 +715,10 @@ export class Bridge {
         }
         case 'speak': {
           const text = await this.speechFor(a0, a1);
+          ok = null;
+          if (this.latestSpeech !== cmd) break;
           if (!text) throw new Error('nothing to read');
           if (!this.voice.speak(text)) throw new Error('no text-to-speech engine on this system');
-          ok = null;
           break;
         }
         case 'say':
@@ -719,9 +744,23 @@ export class Bridge {
       msg = friendlyError(err.message);
       this.log(`command ${cmd.id} failed: ${err.message}`);
     }
+    // Until a snapshot says it acted on the addon's latest speech command, the
+    // addon's speaker button goes by what the player clicked, not by `speech`.
+    if (SPEECH_VERBS.has(cmd.verb) && this.client) this.client.speechCmd = Math.max(this.client.speechCmd || 0, cmd.id);
     if (ok !== null) this.results.push({ id: cmd.id, ok, msg: msg ? escapeWow(msg) : undefined });
     if (this.results.length > 12) this.results.splice(0, this.results.length - 12);
     this.markDirty('important');
+  }
+
+  // A reading's start sends nothing: a command's reading goes out with the update for
+  // that command, and an announcement's with the next update. Its end only matters to
+  // the speaker button in the window once the addon was told it started, so then it
+  // goes out like a status change while the window is open. Otherwise nothing is sent
+  // for it: each update is built when it goes, so the next one says the reading ended,
+  // and opening the window sends one if the speaker would still be red.
+  onSpeaking(on) {
+    if (on || this.stopped) return;
+    if (this.sentSpeaking && this.client?.flags.includes('o')) this.markDirty('important');
   }
 
   // Dictation state travels to the addon in the snapshot (`dict`): listening,
@@ -868,7 +907,7 @@ export class Bridge {
   busyKids(t) {
     let n = 0;
     for (const k of this.t3.threads.values()) {
-      if (k.lineage?.parentThreadId === t.id && (isRunning(k) || waitingOn(k))) n++;
+      if (k.lineage?.parentThreadId === t.id && belongsToParent(k) && (isRunning(k) || waitingOn(k))) n++;
     }
     return n;
   }
@@ -890,7 +929,7 @@ export class Bridge {
       } else if (this.sideParents.has(t.id)) this.scheduleFamily(t.id);
       if (before !== status) {
         this.markDirty('important');
-        if (t.lineage?.parentThreadId && !t.lineage.sideChat) return; // no announcements for subagent threads
+        if (this.underParent(t)) return; // no announcements for subagent threads
         // A snoozed thread stays quiet: the player asked not to hear about it yet.
         if (status === 'snoozed') return;
         if (BUSY.has(before) && !BUSY.has(status)) this.announce(t, status);
@@ -966,9 +1005,8 @@ export class Bridge {
     const usedProjects = new Set();
     let threads = [...t3.threads.values()]
       .map((t) => ({ t, s: this.statusOf(t) }))
-      // Subagent threads only while they're busy or waiting, like T3's own sidebar.
-      // Side chats are the player's own conversations: they stay listed.
-      .filter(({ t, s }) => s !== 'archived' && (!t.lineage?.parentThreadId || t.lineage.sideChat || ACTIVE.has(s) || s === 'waiting'));
+      // Subagent threads only while they're busy, like T3's own sidebar.
+      .filter(({ t, s }) => s !== 'archived' && (!this.underParent(t) || ACTIVE.has(s) || s === 'waiting'));
     threads.sort((a, b) => ORDER[a.s] - ORDER[b.s] || Date.parse(b.t.updatedAt) - Date.parse(a.t.updatedAt));
     let settled = 0;
     threads = threads.filter(({ s }) => s !== 'settled' || ++settled <= 30).slice(0, 90);
@@ -1000,7 +1038,7 @@ export class Bridge {
       const t = t3.threads.get(viewId);
       if (v?.projection) {
         const p = v.projection;
-        const msgs = (p.messages || []).filter((m) => (m.role === 'user' || m.role === 'assistant') && m.text?.trim());
+        const msgs = (p.messages || []).filter((m) => (m.role === 'user' || m.role === 'assistant') && m.text?.trim() && !isT3Notice(m));
         let budget = 60000;
         const out = [];
         for (let i = msgs.length - 1; i >= 0 && out.length < 40; i--) {
@@ -1024,7 +1062,7 @@ export class Bridge {
           err: t?.lastError ? escapeWow(String(t.lastError).slice(0, 300)) : undefined,
           plan: plan ? markdownToWow(plan, { maxChars: 6000 }) : undefined,
           sum: sum ? escapeWow(sum) : undefined,
-          queued: (p.runs || []).filter((r) => r.status === 'queued').length || undefined,
+          queued: queuedFollowUps(p) || undefined,
           shots: this.shots.get(viewId)?.length || undefined,
         };
       } else {
@@ -1066,6 +1104,9 @@ export class Bridge {
       fam,
       usage,
       dict: this.dictation,
+      // Always sent, even with nothing to say: an addon whose bridge doesn't send it
+      // can't tell when a reading ends, so it doesn't show one.
+      speech: { on: this.voice.speaking || undefined, cmd: this.client?.speechCmd },
       newShots: this.shots.get('new')?.length || undefined,
       // ~100 models is several KB, so only when the addon doesn't hold this list yet.
       models: models && this.client?.modelsHash !== models.h ? models : undefined,
@@ -1275,9 +1316,13 @@ export class Bridge {
     let sig = counter;
     // An addon that reports its sound signals don't work (flag "s") isn't listening.
     if (this.proc && !c?.flags.includes('s')) {
-      for (let k = counter; k <= sig; k++) toRaise.push(k);
       // Waiting on an earlier bell (we restarted, say)? Bells are reusable: ring it too.
-      if (c?.pollSig && c.pollSig < counter) toRaise.push(c.pollSig);
+      // Only within the four bells it listens to: four or more behind, ringing it would
+      // empty this update's bell, which shares a file with the one four before it, and
+      // the bells already rung for it are among those it listens to. It goes first, so
+      // a ring that stops partway leaves rung only bells the update may name.
+      if (c?.pollSig && c.pollSig < counter && counter - c.pollSig < 4) toRaise.push(c.pollSig);
+      for (let k = counter; k <= sig; k++) toRaise.push(k);
     }
     const raise = toRaise.length > 0;
     // Slots: write the snapshot to every slot from the addon's last confirmed position
@@ -1299,7 +1344,6 @@ export class Bridge {
       v: 1,
       gen,
       now: Math.floor(Date.now() / 1000),
-      nextSig: raise ? sig + 1 : counter,
       ack: c ? { ui: c.ui, seq: c.seq } : undefined,
       key: this.stripKeys.hex,
     };
@@ -1311,14 +1355,46 @@ export class Bridge {
     const bootstrap = [...targets].filter((i) => i <= 3);
     const rotating = [...targets].filter((i) => i > 3);
     let bytes = 0;
-    try {
-      bytes = this.bank.write(bootstrap, { ...content, ...snapshot });
+    const write = (nextSig) => {
+      // This update carries a part the addon didn't say it had. Whether it applied it is
+      // unknown until it speaks again, so don't leave that part out on a guess: if it
+      // moves back to content the addon last reported, it must be sent, not assumed.
+      for (const { field, letter } of PARTS) {
+        if (c?.hashes?.[field] && snapshot.x[letter] !== c.hashes[field]) c.hashes[field] = null;
+      }
+      bytes = this.bank.write(bootstrap, { ...content, nextSig, ...snapshot });
       if (rotating.length) {
         const slim = Bridge.slimSnapshot(snapshot, c?.hashes);
-        bytes = Math.max(bytes, this.bank.write(rotating, { ...content, ...slim }));
+        bytes = Math.max(bytes, this.bank.write(rotating, { ...content, nextSig, ...slim }));
       }
+    };
+    try {
+      // An update names the bell after the one it rings, and the addon listens to four
+      // from there. The fourth shares its file with the bell four before the ring, so
+      // that one is emptied before any update names the next. An addon that fell behind
+      // and still plays it can hold its file open: the update then names the bell still
+      // owed, which moves such an addon off the old one, and goes out again.
+      let held = null;
       if (raise) {
-        for (const k of toRaise) this.bank.raise(k);
+        try {
+          for (const k of toRaise) this.bank.free(k);
+        } catch (err) {
+          if (!(err instanceof FileInUse)) throw err;
+          held = err;
+        }
+      }
+      write(raise && !held ? sig + 1 : counter);
+      if (held) throw held;
+      if (raise) {
+        try {
+          for (const k of toRaise) this.bank.raise(k);
+        } catch (err) {
+          // A bell that didn't ring is named again as the one still owed, and the update
+          // goes out again. An addon that loaded it in between listens past that bell,
+          // and hears the update after this one.
+          if (err instanceof FileInUse) write(counter);
+          throw err;
+        }
         this.persist.sigCounter = Math.max(counter, sig + 1);
         if (c) c.slotNext = predicted + 1;
         this.persist.slotGuess = predicted + 1;
@@ -1348,13 +1424,8 @@ export class Bridge {
       this.failures = null;
       this.log(`publish recovered after ${count} failed ${count === 1 ? 'try' : 'tries'} (${((Date.now() - since) / 1000).toFixed(1)}s)`);
     }
-    // This publish carried a part the addon didn't say it had. Whether it applied it is
-    // unknown until it speaks again, so don't leave that part out on a guess: if it
-    // moves back to content the addon last reported, it must be sent, not assumed.
-    for (const { field, letter } of PARTS) {
-      if (c?.hashes?.[field] && snapshot.x[letter] !== c.hashes[field]) c.hashes[field] = null;
-    }
     for (const r of this.results) r.sent = true;
+    this.sentSpeaking = !!snapshot.speech.on;
     this.lastGen = gen;
     this.persist.gen = gen;
     this.lastDigest = digest;
@@ -1366,18 +1437,30 @@ export class Bridge {
     return true;
   }
 
+  // Whether the game keeps `t` under the thread whose work it is, as T3 Code's sidebar
+  // does: listed only while busy, and never announced. A task another machine delegated
+  // here counts only while its sender is a thread this bridge knows and isn't archived;
+  // otherwise nothing in game leads to it, so it's listed and announced as the player's.
+  underParent(t) {
+    if (!belongsToParent(t)) return false;
+    if (t.delegatedFrom == null || t.lineage?.parentThreadId) return true;
+    const sender = t._from?.key ? this.t3.threads.get(t._from.key) : null;
+    return Boolean(sender && !sender.archivedAt);
+  }
+
   writeStatus() {
     const status = {
       version: VERSION,
       pid: process.pid,
       at: new Date().toISOString(),
-      t3: { state: this.t3.state, error: this.t3.error, threads: [...this.t3.threads.values()].filter((t) => !t.lineage?.parentThreadId).length, origin: this.t3.origin, environments: this.t3.environments() },
+      t3: { state: this.t3.state, error: this.t3.error, threads: [...this.t3.threads.values()].filter((t) => !belongsToParent(t)).length, origin: this.t3.origin, environments: this.t3.environments() },
       wow: this.proc ? { pid: this.proc.pid } : null,
       capture: { state: this.captureState, backend: this.capture.resolveBackend(), ...this.capture.stats, lastError: this.capture.lastError },
       addon: this.client
         ? { ui: this.client.ui, version: this.client.version, flags: this.client.flags, view: this.client.view, slotNext: this.client.slotNext, lastSeen: this.client.lastSeen, encrypted: !!this.client.encrypted }
         : null,
-      slots: { total: this.bank.slots, remaining: this.remainingSlots() },
+      // Only the addon says where it is, so the count is known once it has.
+      slots: { total: this.bank.slots, remaining: this.client ? this.remainingSlots() : null },
       signals: { next: this.persist.sigCounter },
       rejected: { forged: this.rejected.forged, plainCommands: this.rejected.plainCommands },
       publishes: this.publishCount || 0,

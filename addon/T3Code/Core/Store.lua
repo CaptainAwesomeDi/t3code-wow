@@ -376,6 +376,35 @@ local function GameVoices()
 	return ok and voices and #voices > 0 and voices or nil
 end
 
+-- What is being read aloud, so a speaker button can stop it: nil, or { voice = "game"
+-- or "system", key = the ReadingKey of what a button started, nil for anything else }.
+local reading
+-- The latest speak, say or hush sent to the bridge. A snapshot whose `speech` hasn't
+-- acted on it yet was built before that click, so it says nothing about it.
+local lastSpeechCmd = 0
+
+-- Whether the bridge says when its voice is reading. One that doesn't can't say when a
+-- reading ends, so the desktop voice's readings never show.
+local function SpeechReported()
+	return type(Store.data.speech) == "table"
+end
+
+local function SetReading(value)
+	if value == reading then return end
+	reading = value
+	ns:Fire("ReadingChanged")
+end
+
+function ns.ReadingKey(threadId, messageIndex)
+	if not threadId or threadId == "" then return nil end
+	return threadId .. ":" .. tostring(messageIndex or "last")
+end
+
+-- Whether anything is being read aloud, or with a key, whether that is.
+function ns.Reading(key)
+	return reading ~= nil and (key == nil or reading.key == key)
+end
+
 function ns.SpeechEngine()
 	local pref = ns.db and ns.db.settings.tts or "auto"
 	if pref == "off" then return "off" end
@@ -389,11 +418,17 @@ end
 
 function ns.Speak(text, threadId, messageIndex)
 	local engine = ns.SpeechEngine()
+	local key = ns.ReadingKey(threadId, messageIndex)
 	if engine == "system" then
-		if threadId and threadId ~= "" then
-			ns.Transport:Send("speak", threadId, messageIndex or "last")
+		local id
+		if key then
+			id = ns.Transport:Send("speak", threadId, messageIndex or "last")
 		else
-			ns.Transport:Send("say", ns.StripMarkup(text):sub(1, 1200))
+			id = ns.Transport:Send("say", ns.StripMarkup(text):sub(1, 1200))
+		end
+		if id then
+			lastSpeechCmd = id
+			if SpeechReported() then SetReading({ voice = "system", key = key }) end
 		end
 		return true
 	elseif engine == "game" then
@@ -406,6 +441,7 @@ function ns.Speak(text, threadId, messageIndex)
 		local volume = C_TTSSettings and C_TTSSettings.GetSpeechVolume and C_TTSSettings.GetSpeechVolume() or 100
 		C_VoiceChat.StopSpeakingText()
 		C_VoiceChat.SpeakText(voice, ns.StripMarkup(text):sub(1, 2000), rate, volume, false)
+		SetReading({ voice = "game", key = key, before = ns.GameUtterances() })
 		return true
 	end
 	ns.Print("No text-to-speech voice is available. Pick one in T3 Code settings.")
@@ -413,9 +449,77 @@ function ns.Speak(text, threadId, messageIndex)
 end
 
 function ns.Hush()
-	if ns.SpeechEngine() == "game" then
+	if (reading and reading.voice or ns.SpeechEngine()) == "game" then
 		C_VoiceChat.StopSpeakingText()
 	else
-		ns.Transport:Send("hush")
+		lastSpeechCmd = ns.Transport:Send("hush") or lastSpeechCmd
 	end
+	SetReading(nil)
 end
+
+-- The game's voice names each utterance: STARTED(utteranceID), FINISHED(utteranceID)
+-- and FAILED(utteranceID, status). SpeakText doesn't return the id, so ours is the first
+-- to start after it that wasn't already going. Only its end clears the speaker: a
+-- reading stopped with StopSpeakingText may still say it ended, after ours has started.
+-- An utterance that starts while ours goes on cut it off, and one cut off never says it
+-- ended, so that ends ours too. Speak and Hush clear what they stop themselves.
+local playing, playingCount = {}, 0
+
+-- The utterances going now, which a new reading's end mustn't be taken from.
+function ns.GameUtterances()
+	local copy = {}
+	for id in pairs(playing) do copy[id] = true end
+	return copy
+end
+
+local function Ours(id)
+	return reading and reading.voice == "game" and not reading.before[id]
+end
+
+ns:RegisterEvent("VOICE_CHAT_TTS_PLAYBACK_STARTED", function(id)
+	if id == nil then return end
+	-- An utterance stopped with StopSpeakingText may never say it ended: keep this short.
+	if playingCount >= 32 then playing, playingCount = {}, 0 end
+	if not playing[id] then playing[id], playingCount = true, playingCount + 1 end
+	if not Ours(id) then return end
+	if reading.utterance == nil then
+		reading.utterance = id
+	elseif reading.utterance ~= id then
+		SetReading(nil)
+	end
+end)
+
+local function GameReadingEnded(id)
+	if id ~= nil and playing[id] then playing[id], playingCount = nil, playingCount - 1 end
+	-- Before ours has started, an end that isn't one already going is ours failing.
+	if Ours(id) and (reading.utterance == nil or reading.utterance == id) then SetReading(nil) end
+end
+ns:RegisterEvent("VOICE_CHAT_TTS_PLAYBACK_FINISHED", GameReadingEnded)
+ns:RegisterEvent("VOICE_CHAT_TTS_PLAYBACK_FAILED", GameReadingEnded)
+
+local function Queued(id)
+	for _, cmd in ipairs(ns.Transport.queue) do
+		if cmd.id == id then return true end
+	end
+	return false
+end
+
+-- The desktop voice is the bridge's, and each snapshot says whether it is reading.
+-- A snapshot that doesn't acknowledge this window comes from a bridge that hasn't heard
+-- it, one restarted since, say: a click that has already gone went to a bridge that has
+-- stopped since, so that snapshot says all there is about it.
+ns:On("DataChanged", function()
+	if not SpeechReported() then
+		if reading and reading.voice == "system" then SetReading(nil) end
+		return
+	end
+	local speech = Store.data.speech
+	local ack = Store.data.ack
+	local heard = type(ack) == "table" and ack.ui == ns.ui
+	if (tonumber(speech.cmd) or 0) < lastSpeechCmd and (heard or Queued(lastSpeechCmd)) then return end
+	if speech.on then
+		if not (reading and reading.voice == "system") then SetReading({ voice = "system" }) end
+	elseif reading and reading.voice == "system" then
+		SetReading(nil)
+	end
+end)

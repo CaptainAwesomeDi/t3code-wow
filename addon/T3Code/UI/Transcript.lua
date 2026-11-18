@@ -92,72 +92,28 @@ end
 ---------------------------------------------------------------------------
 -- Element initializers
 
--- Stacked font strings: a reply is one face, and a fenced block is another.
--- The scroll row recycles, so spare lines are hidden rather than thrown away.
-local function PlaceLines(frame, point, rel, relPoint, x, y, text, width, note)
-	local blocks = ns.Fonts.Blocks(text)
-	local lines = frame.Lines
-	if not lines then
-		lines = {}
-		frame.Lines = lines
-	end
-	local prev
-	for i, block in ipairs(blocks) do
-		local fs = lines[i]
-		if not fs then
-			fs = frame:CreateFontString(nil, "ARTWORK", note and "GameFontNormal" or "GameFontHighlight")
-			lines[i] = fs
-		end
-		fs:Show()
-		fs:ClearAllPoints()
-		if i == 1 then
-			fs:SetPoint(point, rel, relPoint, x, y)
-		else
-			fs:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -BLOCK_GAP)
-		end
-		local role = block.kind == "code" and "mono" or (note and "note" or "body")
-		ns.Fonts.Apply(fs, role, block.text)
-		fs:SetWidth(width)
-		fs:SetJustifyH("LEFT")
-		fs:SetJustifyV("TOP")
-		fs:SetText(ns.Theme.Markup(block.text))
-		prev = fs
-	end
-	for i = #blocks + 1, #lines do
-		lines[i]:Hide()
-		lines[i]:SetText("")
-	end
-	if note then frame.Text = lines[1] else frame.Body = lines[1] end
-	local h = 0
-	for i = 1, #blocks do
-		if i > 1 then h = h + BLOCK_GAP end
-		h = h + math.ceil(lines[i]:GetStringHeight() or 0)
-	end
-	return h
-end
-
-local function Grow(ed, needed)
-	if needed <= (ed.height or 0) + 1 then return end
-	ed.height = needed
-	if ed.fixKey then T.heightFix[ed.fixKey] = needed end
-	if T.reflowQueued then return end
-	T.reflowQueued = true
-	C_Timer.After(0, function()
-		T.reflowQueued = nil
-		T:Reflow()
-	end)
+-- A reply's speaker turns red while that reply is read aloud, and a click on it then
+-- stops the reading.
+local function ShowSpeak(button, m)
+	button.reading = ns.Reading(ns.ReadingKey(ns.viewId, m.n))
+	UI.TintActive(button.Icon, button.reading)
 end
 
 local function InitMessage(frame, ed)
-	if not frame.Label then
-		frame.Label = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+	if not frame.Body then
+		frame.Label = frame:CreateFontString(nil, "ARTWORK", UI.Font("GameFontNormalSmall"))
 		frame.Label:SetPoint("TOPLEFT", PAD_X, -6)
+		frame.Body = frame:CreateFontString(nil, "ARTWORK", UI.Font(BODY_FONT))
+		frame.Body:SetPoint("TOPLEFT", frame.Label, "BOTTOMLEFT", 0, -4)
+		frame.Body:SetJustifyH("LEFT")
+		frame.Body:SetJustifyV("TOP")
+		frame.Body:SetSpacing(BODY_SPACING)
 		frame.Speak = UI.IconButton(frame, "voicechat-icon-speaker", 18, nil, nil)
 		frame.Speak.Background:Hide()
 		frame.Speak:SetPoint("TOPRIGHT", -6, -4)
 		frame.Speak:SetAlpha(0.8)
-		UI.Tooltip(frame.Speak, "Read aloud")
-		frame.Time = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+		UI.Tooltip(frame.Speak, function(self) return self.reading and "Stop reading aloud" or "Read aloud" end)
+		frame.Time = frame:CreateFontString(nil, "ARTWORK", UI.Font("GameFontDisableSmall"))
 		frame.Time:SetPoint("RIGHT", frame.Speak, "LEFT", -6, 0)
 	end
 	local m = ed.msg
@@ -172,7 +128,10 @@ local function InitMessage(frame, ed)
 	Grow(ed, 34 + textH)
 	frame.Time:SetText(m.at and date("%H:%M", m.at) or "")
 	frame.Speak:SetShown(m.r == "a")
-	frame.Speak:SetScript("OnClick", function() ns.Speak(m.t, ns.viewId, m.n) end)
+	frame.Speak:SetScript("OnClick", function()
+		if ns.Reading(ns.ReadingKey(ns.viewId, m.n)) then ns.Hush() else ns.Speak(m.t, ns.viewId, m.n) end
+	end)
+	ShowSpeak(frame.Speak, m)
 end
 
 local function InitNote(frame, ed)
@@ -180,6 +139,10 @@ local function InitNote(frame, ed)
 		frame.Icon = frame:CreateTexture(nil, "ARTWORK")
 		frame.Icon:SetSize(16, 16)
 		frame.Icon:SetPoint("TOPLEFT", PAD_X, -6)
+		frame.Text = frame:CreateFontString(nil, "ARTWORK", UI.Font("GameFontNormal"))
+		frame.Text:SetPoint("TOPLEFT", frame.Icon, "TOPRIGHT", 6, 0)
+		frame.Text:SetJustifyH("LEFT")
+		frame.Text:SetJustifyV("TOP")
 		frame.Anim = frame.Icon:CreateAnimationGroup()
 		local rot = frame.Anim:CreateAnimation("Rotation")
 		rot:SetDegrees(-360)
@@ -200,7 +163,7 @@ local function InitOption(button, ed)
 		button.Bullet = button:CreateTexture(nil, "ARTWORK")
 		button.Bullet:SetSize(10, 10)
 		button.Bullet:SetPoint("LEFT", PAD_X + 6, 0)
-		button.Label = button:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+		button.Label = button:CreateFontString(nil, "ARTWORK", UI.Font("GameFontNormal"))
 		button.Label:SetPoint("LEFT", button.Bullet, "RIGHT", 8, 0)
 		button.Label:SetPoint("RIGHT", -8, 0)
 		button.Label:SetJustifyH("LEFT")
@@ -227,13 +190,9 @@ local function InitOption(button, ed)
 	local theme = ns.Theme.Get()
 	if ed.checked ~= nil then
 		if theme then
-			-- A flat square: the accent when checked, grey when not.
-			button.Bullet:SetTexture("Interface\\Buttons\\WHITE8X8")
-			if ed.checked then
-				ns.Theme.Paint(button.Bullet, theme.accent)
-			else
-				button.Bullet:SetVertexColor(0.45, 0.45, 0.45)
-			end
+			-- The kit's check box, square: the accent when checked, the control's
+			-- border color when not.
+			ns.Theme.Paint(button.Bullet, ed.checked and theme.accent or theme.controlBorder)
 			button.Bullet:SetSize(10, 10)
 		else
 			button.Bullet:SetTexture(ed.checked and "Interface\\Buttons\\UI-CheckBox-Check" or "Interface\\Buttons\\UI-CheckBox-Up")
@@ -252,10 +211,7 @@ local function InitOption(button, ed)
 	end
 	button.Label:SetText(ed.label)
 	if theme then
-		-- GameFontNormal's shadow is light, so white letters disappeared into it.
-		local path, size = button.Label:GetFont()
-		button.Label:SetFont(path or "Fonts\\FRIZQT__.TTF", size or 12, "")
-		button.Label:SetShadowOffset(0, 0)
+		button.Label:SetFontObject(ed.primary and "T3ModernBodyBold" or "T3ModernBody")
 		ns.Theme.SetText(button.Label, ed.primary and theme.text or theme.muted)
 	elseif ed.primary then
 		button.Label:SetTextColor(1, 1, 1)
@@ -355,16 +311,15 @@ local function EchoArrived(echo, m)
 end
 
 local function MessageElement(msg, echo)
-	local width = T:ReadingWidth()
-	local fixKey = ns.Fonts.Choice() .. ":" .. math.floor(width) .. ":" .. msg.t
-	local height = math.max(34 + ContentHeight(msg.t, width, false), T.heightFix[fixKey] or 0)
+	local width = T:BodyWidth()
+	local fixKey = math.floor(width) .. ":" .. msg.t
+	local height = math.max(34 + Measure(msg.t, width, UI.Font(BODY_FONT), BODY_SPACING), T.heightFix[fixKey] or 0)
 	return { kind = "msg", msg = msg, echo = echo, height = height, fixKey = fixKey }
 end
 
 local function Note(text, icon, opts)
-	local width = T:ReadingWidth(T:BodyWidth() - 22)
-	local fixKey = "n:" .. ns.Fonts.Choice() .. ":" .. math.floor(width) .. ":" .. text
-	local e = { kind = "note", text = text, icon = icon, fixKey = fixKey, height = math.max(14 + math.max(16, ContentHeight(text, width, true)), T.heightFix[fixKey] or 0) }
+	local width = T:BodyWidth() - 22
+	local e = { kind = "note", text = text, icon = icon, height = 14 + math.max(16, Measure(text, width, UI.Font("GameFontNormal"))) }
 	if opts then for k, v in pairs(opts) do e[k] = v end end
 	return e
 end
@@ -556,6 +511,13 @@ function T:Reflow()
 	local atBottom = not self.scrollBox:HasScrollableExtent() or self.scrollBox:GetScrollPercentage() > 0.97
 	self.scrollBox:SetDataProvider(self.dp, ScrollBoxConstants.RetainScrollPosition)
 	if atBottom then self.scrollBox:ScrollToEnd(ScrollBoxConstants.NoScrollInterpolation) end
+end
+
+function T:ShowReading()
+	if not self.scrollBox then return end
+	self.scrollBox:ForEachFrame(function(frame, ed)
+		if ed.kind == "msg" and frame.Speak then ShowSpeak(frame.Speak, ed.msg) end
+	end)
 end
 
 function T:Refresh(force)

@@ -30,13 +30,66 @@ export function which(bin) {
   return null;
 }
 
+// A tts.command runs through a shell, which may start other programs (a pipeline into
+// a player, say). Stopping the reading must stop all of them, not just the shell. On
+// Linux and macOS the shell leads a process group of its own, ended as a whole. That
+// group is out of reach of what used to end it with the bridge (systemd's cgroup does,
+// launchd and a terminal don't), so groups still running are ended when the bridge
+// exits. Windows ends a Node program's children with it already; there `taskkill /T`
+// ends the shell's tree.
+const GROUPS = process.platform !== 'win32';
+const TASKKILL = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe');
+const liveGroups = new Set();
+let groupsHooked = false;
+
+function endGroup(pid) {
+  try {
+    process.kill(-pid, 'SIGTERM');
+  } catch {}
+}
+
+function keepGroup(child) {
+  if (!groupsHooked) {
+    groupsHooked = true;
+    process.on('exit', () => {
+      for (const pid of liveGroups) endGroup(pid);
+    });
+  }
+  liveGroups.add(child.pid);
+  child.on('exit', () => liveGroups.delete(child.pid));
+}
+
+/** Stops a reading's program and, for a tts.command, everything its shell started. */
+function stopReader(child) {
+  const running = child.exitCode === null && child.signalCode === null;
+  if (child.shellGroup) {
+    liveGroups.delete(child.pid);
+    if (running) endGroup(child.pid);
+  } else if (child.shellTree && running) {
+    spawn(TASKKILL, ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).on('error', () => child.kill());
+  } else {
+    try {
+      child.kill('SIGTERM');
+    } catch {}
+  }
+}
+
 export class Voice {
-  constructor({ ttsCommand = null, rate = 0, log = () => {} } = {}) {
+  constructor({ ttsCommand = null, rate = 0, log = () => {}, onSpeaking = () => {} } = {}) {
     this.ttsCommand = ttsCommand; // e.g. "piper-say" or "my-tts --stdin"; text arrives on stdin
     this.rate = rate;
     this.log = log;
+    this.onSpeaking = onSpeaking; // called with true or false each time `speaking` changes
     this.current = null;
     this.dictating = false;
+  }
+
+  /**
+   * Whether something is being read aloud: the program reading it is still running.
+   * A tts.command that returns before it has finished speaking counts as done then.
+   */
+  get speaking() {
+    return this.current !== null;
   }
 
   ttsEngine() {
@@ -71,16 +124,36 @@ export class Voice {
   }
 
   hush() {
+    const was = this.speaking;
+    this.silence();
+    if (was) this.onSpeaking(false);
+  }
+
+  // Stops whatever is being read without reporting it: speak() reports once, after
+  // the next reading has started. Returns a promise that settles once speech-dispatcher
+  // has cancelled what it holds (or after 2 s), or null without speech-dispatcher.
+  silence() {
     if (this.current) {
-      try {
-        this.current.kill('SIGTERM');
-      } catch {}
+      if (this.current.child) stopReader(this.current.child);
       this.current = null;
     }
     const spd = which('spd-say');
-    if (spd) spawn(spd, ['--cancel'], { stdio: 'ignore' }).on('error', () => {});
+    if (!spd) return null;
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, 2000);
+      timer.unref();
+      const done = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      spawn(spd, ['--cancel'], { stdio: 'ignore' }).on('error', done).on('exit', done);
+    });
   }
 
+  /**
+   * Reads `text` aloud. `current` is the reading ({ child }) from here until its program
+   * exits or a hush stops it; its child may start a moment later (see below).
+   */
   speak(text) {
     text = String(text || '').trim();
     if (!text) return false;
@@ -89,34 +162,59 @@ export class Voice {
       this.log('speak: no text-to-speech engine found (install speech-dispatcher or espeak-ng, or set tts.command)');
       return false;
     }
-    this.hush();
+    const was = this.speaking;
+    const cancelled = this.silence();
+    const reading = { child: null };
+    this.current = reading;
+    const start = () => {
+      if (this.current !== reading) return; // stopped, or another reading took over
+      const child = (reading.child = this.startReader(engine, text));
+      const done = () => {
+        if (this.current !== reading) return;
+        this.current = null;
+        this.onSpeaking(false);
+      };
+      child.on('error', (err) => {
+        this.log(`speak: ${err.message}`);
+        done();
+      });
+      child.on('exit', done);
+    };
+    // `spd-say --cancel` cancels everything speech-dispatcher holds, the new text too
+    // if it lands after it, so speech-dispatcher's next reading waits for the cancel.
+    if (engine.kind === 'spd' && cancelled) cancelled.then(start);
+    else start();
+    if (!was) this.onSpeaking(true);
+    return true;
+  }
+
+  startReader(engine, text) {
     let child;
     if (engine.kind === 'custom') {
-      child = spawn(engine.cmd, { shell: true, stdio: ['pipe', 'ignore', 'ignore'] });
-      child.stdin.end(text);
+      child = spawn(engine.cmd, { shell: true, detached: GROUPS, stdio: ['pipe', 'ignore', 'ignore'] });
+      // No pid: it didn't start, and its 'error' says why.
+      if (child.pid && GROUPS) {
+        child.shellGroup = true;
+        keepGroup(child);
+      } else if (child.pid) {
+        child.shellTree = true;
+      }
     } else if (engine.kind === 'spd') {
       const args = ['--wait', '-e'];
       if (this.rate) args.push('-r', String(this.rate));
       child = spawn(engine.cmd, args, { stdio: ['pipe', 'ignore', 'ignore'] });
-      child.stdin.end(text);
     } else if (engine.kind === 'say') {
       // Reads the text from stdin; -r is words per minute (the system default is ~175).
       const args = ['-f', '-'];
       if (this.rate) args.push('-r', String(175 + this.rate));
       child = spawn(engine.cmd, args, { stdio: ['pipe', 'ignore', 'ignore'] });
-      child.stdin.end(text);
     } else {
       const args = ['--stdin'];
       if (this.rate) args.push('-s', String(175 + this.rate));
       child = spawn(engine.cmd, args, { stdio: ['pipe', 'ignore', 'ignore'] });
-      child.stdin.end(text);
     }
-    child.on('error', (err) => this.log(`speak: ${err.message}`));
-    child.on('exit', () => {
-      if (this.current === child) this.current = null;
-    });
-    this.current = child;
-    return true;
+    child.stdin.end(text);
+    return child;
   }
 
   // ---- Omarchy dictation with clipboard capture ----------------------------------
