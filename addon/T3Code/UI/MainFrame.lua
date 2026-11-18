@@ -82,10 +82,13 @@ local function CreateSideTab(f, index, icon, tooltip, page)
 	local theme = Theme.Get()
 	local tab
 	if theme then
-		-- A flat square; the active page's tab carries the accent down its left edge.
+		-- A flat square outside the window, on the world. The button glass is a wash
+		-- of the foreground and disappears there, so the tab takes the theme's
+		-- own background, solid. The active page's tab carries the accent down
+		-- its left edge.
 		tab = CreateFrame("Button", nil, f)
 		tab:SetSize(40, 40)
-		local bg = Theme.Solid(tab, theme.panelAlt)
+		local bg = Theme.Solid(tab, theme.overlay)
 		bg:SetAllPoints()
 		-- No left rule: the tab grows out of the window's own border.
 		Theme.Edges(tab, theme.hairline, true)

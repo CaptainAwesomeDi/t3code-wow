@@ -1674,6 +1674,7 @@ do
 		return true
 	end
 	check(tabsMarked(page), "the open page's side tab carries the accent")
+	check(painted(f.Tabs[1], theme.overlay) and painted(f.Tabs[2], theme.overlay) and painted(f.Tabs[3], theme.overlay), "the side tabs are the theme's solid background")
 	check(painted(f.Bar.Send, theme.hover) and painted(f.Bar.Send, accent) and rgba(labelOf(f.Bar.Send)._textColor, accent) and labelOf(f.Bar.Send)._fontObject == "T3ModernBodyBold", "Send is the kit's default button: a light wash, an accent border and a bold accent label")
 	check(painted(f.Bar.Refresh, theme.panelAlt) and not painted(f.Bar.Refresh, accent), "the other buttons stay on the flat dark fill")
 	check(f.Bar.Stop.Icon._texture:find("icons\\x", 1, true) and f.Bar.Stop.Background._color[4] == 0, "toolbar icons are line strokes on the ground")
@@ -2000,6 +2001,7 @@ do
 	local second = ns.PALETTES[2]
 	check(ns.Main.frame ~= beforePalette and ns.db.settings.palette == second.id and ns.Theme.MARKUP.white == "ff" .. second.foreground:sub(2)
 		and rgba(ns.Theme.MODERN.windowBg, { tonumber(second.background:sub(2, 3), 16) / 255, tonumber(second.background:sub(4, 5), 16) / 255, tonumber(second.background:sub(6, 7), 16) / 255, 0.94 }), "picking another theme repaints the window in it")
+	check(painted(ns.Main.frame.Tabs[1], ns.Theme.MODERN.overlay), "the side tabs take the new theme's background")
 	check(ns.Settings.palette.Text:GetText() == second.label, "the theme dropdown names the new theme")
 	local liveTitle = _G.T3ModernBody._textColor
 	check(rgba(liveTitle, ns.Theme.MODERN.text), "the kit's fonts take the new theme's foreground")
