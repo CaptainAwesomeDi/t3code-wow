@@ -1941,14 +1941,16 @@ do
 	UnitClass = nil
 	ns.db.settings.palette = "tokyo-night"
 	ns.Main:ApplyTheme()
+	check(_G.T3ModernBody._font[1]:find("JetBrainsMono-Regular.ttf", 1, true) and _G.T3ModernTitle._font[1]:find("JetBrainsMono-Bold.ttf", 1, true) and ns.Theme.fontOk, "the kit's fonts are JetBrains Mono, bold for titles")
 	-- A missing font file leaves the game's font, never no text.
+	local savedRegular, savedBold = ns.Theme.FONT_REGULAR, ns.Theme.FONT_BOLD
 	ns.Theme.FONT_REGULAR, ns.Theme.FONT_BOLD = "Interface\\AddOns\\T3Code\\Media\\fonts\\Gone.ttf", "Interface\\AddOns\\T3Code\\Media\\fonts\\Gone.ttf"
 	Stub.missingFonts = { [ns.Theme.FONT_REGULAR] = true }
 	local savedFile = _G.T3ModernBody._font[1]
 	ns.Theme.UpdateFonts()
 	check(not ns.Theme.fontOk and _G.T3ModernBody._font[1] ~= ns.Theme.FONT_REGULAR and _G.T3ModernBody._font[1] ~= nil and _G.T3ModernBody._font[2] == 12, "a font file that won't load falls back to the game's font")
 	Stub.missingFonts = nil
-	ns.Theme.FONT_REGULAR, ns.Theme.FONT_BOLD = nil, nil
+	ns.Theme.FONT_REGULAR, ns.Theme.FONT_BOLD = savedRegular, savedBold
 	ns.Theme.UpdateFonts()
 	check(_G.T3ModernBody._font[1] == savedFile, "the fonts are put back")
 	ns.Main:ShowPage(page)

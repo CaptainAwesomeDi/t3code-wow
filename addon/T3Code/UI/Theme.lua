@@ -304,8 +304,10 @@ local STAND_IN = {
 	ChatFontNormal = "T3ModernBody",
 }
 
--- The font files: the kit's monospace when the addon ships one, else the game's.
-Theme.FONT_REGULAR, Theme.FONT_BOLD = nil, nil
+-- The font files: JetBrains Mono, Omarchy's default monospace (Media/fonts, under
+-- the SIL Open Font License in OFL.txt). Without them, the game's own font.
+Theme.FONT_REGULAR = ns.media .. "fonts\\JetBrainsMono-Regular.ttf"
+Theme.FONT_BOLD = ns.media .. "fonts\\JetBrainsMono-Bold.ttf"
 
 local function GameFont()
 	local path = GameFontHighlight and GameFontHighlight.GetFont and GameFontHighlight:GetFont()
