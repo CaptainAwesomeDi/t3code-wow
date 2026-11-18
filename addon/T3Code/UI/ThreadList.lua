@@ -187,7 +187,7 @@ local function InitRow(button, ed)
 		sub = "from " .. (parent and parent.title or "another thread")
 	end
 	if t.s == "working" or t.s == "input" or t.s == "waiting" then sub = t.l or sub end
-	TrimTo(button.Sub, sub, rowW - 18 - indent - 64)
+	TrimTo(button.Sub, sub, rowW - 18 - 64)
 	if (t.s == "working" or t.s == "waiting") and t.st then
 		button.Age:SetText(ns.Duration(time() - t.st))
 	elseif t.s == "snoozed" then

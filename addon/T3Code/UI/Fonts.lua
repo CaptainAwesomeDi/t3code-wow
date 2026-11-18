@@ -26,7 +26,7 @@ local FACES = {
 }
 
 local function FacePath(file)
-	return ns.media .. "Fonts\\" .. file
+	return ns.media .. "fonts\\" .. file
 end
 
 function Fonts.Choice()
@@ -103,11 +103,13 @@ local function UseFace(fs, path, size, spacing)
 end
 
 local function GameFace(fs, role)
+	-- The game default follows the open design: JetBrains Mono in the modern window,
+	-- the client's own faces in the classic one.
 	if role == "note" then
-		fs:SetFontObject("GameFontNormal")
+		fs:SetFontObject(ns.UI.Font("GameFontNormal"))
 		fs:SetSpacing(0)
 	else
-		fs:SetFontObject("GameFontHighlight")
+		fs:SetFontObject(ns.UI.Font("GameFontHighlight"))
 		fs:SetSpacing(2)
 	end
 end

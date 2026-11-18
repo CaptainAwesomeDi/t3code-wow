@@ -120,3 +120,18 @@ test("speech-dispatcher's next reading waits for the cancel of the last, which w
   assert.ok(await until(() => !voice.speaking), 'the reading went and ended');
   assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), ['cancelled', 'read']);
 });
+
+test('a voxtype recording is asked for the clipboard, so it does not type into the game', () => {
+  const voice = new Voice();
+  const bins = { voxtype: '/usr/bin/voxtype', omarchy: '/usr/bin/omarchy-dictation' };
+  voice.backendName = () => 'voxtype';
+  const cmds = voice.dictationCommands(bins);
+  assert.deepEqual(cmds.start, [bins.voxtype, ['record', 'start', '--clipboard', '--no-auto-submit']]);
+  assert.deepEqual(cmds.stop, [bins.voxtype, ['record', 'stop']]);
+  assert.deepEqual(cmds.cancel, [bins.voxtype, ['record', 'cancel']]);
+  voice.backendName = () => 'superwhisper';
+  const other = voice.dictationCommands(bins);
+  assert.deepEqual(other.start, [bins.omarchy, ['start']]);
+  assert.deepEqual(other.stop, [bins.omarchy, ['stop']]);
+  assert.equal(other.cancel, null);
+});

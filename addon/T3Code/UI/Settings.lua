@@ -202,6 +202,12 @@ function S:CreateClassic(page)
 				S:Refresh()
 			end, options, ns.db.settings.tts)
 		end,
+		-- The window column is full once the connection text sits under it.
+		threads = function(col)
+			col.y = col.y - CLASSIC_GAP
+			self.reading = Choice(col, "Reading font", ChooseReading, ReadingOptions(), ns.db.settings.readingFont or "inter")
+			self.reading.tipBody = READING_TIP
+		end,
 		window = function(col)
 			self.design = Choice(col, "Design", ChooseDesign, {
 				{ value = "classic", label = "Classic (the game's own look)" },
@@ -247,16 +253,6 @@ function S:CreateClassic(page)
 	self.info:SetJustifyV("TOP")
 	self.info:SetSpacing(3)
 
-	-- The left column is already full, so this sits under the connection text.
-	local readLabel = UI.Text(page, "GameFontHighlight")
-	readLabel:SetPoint("TOPLEFT", self.info, "BOTTOMLEFT", 0, -18)
-	readLabel:SetText("Reading font")
-	local reading = UI.Dropdown(page, 240, ChooseReading)
-	reading:SetPoint("TOPLEFT", readLabel, "BOTTOMLEFT", 0, -6)
-	reading.tipBody = READING_TIP
-	reading:SetOptions(ReadingOptions(), ns.db.settings.readingFont or "inter")
-	self.reading = reading
-
 	local reload = UI.Button(page, "Reload UI", 130, function() ReloadUI() end)
 	reload:SetPoint("BOTTOMLEFT", 20, 16)
 	UI.Tooltip(reload, "Reload UI", "Frees up a fresh set of live updates. Does the same as typing /reload.")
@@ -271,9 +267,9 @@ function S:CreateClassic(page)
 	local report = UI.Button(page, "Report a problem", 150, function() ns.Main:ShowPage("threads") ns.Main:Report() end)
 	report:SetPoint("LEFT", selftest, "RIGHT", 10, 0)
 	UI.Tooltip(report, "Report a problem", "Puts diagnostics in the message box and attaches a screenshot, for the thread you have open (or a new one).")
-	local all = { extras.testNotice, extras.testVoice, self.voice, self.design, self.size, reload, resetTracker, selftest, report }
+	local all = { extras.testNotice, extras.testVoice, self.voice, self.design, self.size, self.reading, reload, resetTracker, selftest, report }
 	self.controls = {}
-	for i = 1, 9 do
+	for i = 1, 10 do
 		if all[i] then table.insert(self.controls, all[i]) end
 	end
 end
@@ -507,6 +503,10 @@ function S:CreateModern(page)
 		{ value = "xlarge", label = "Extra large" },
 	}, ns.db.settings.windowScale or "auto")
 
+	self.reading = ChoiceRow("window", "Reading font", "Clearer type for long replies, on a shorter line.", "reading font inter atkinson game default", 220, ChooseReading)
+	self.reading.tipBody = READING_TIP
+	self.reading:SetOptions(ReadingOptions(), ns.db.settings.readingFont or "inter")
+
 	local paletteHay = "theme omarchy colors light dark modern"
 	for _, p in ipairs(Theme.Palettes()) do paletteHay = paletteHay .. " " .. p.label:lower() end
 	self.palette = ChoiceRow("modern", "Theme", "One of Omarchy's own themes.", paletteHay, 220, ChoosePalette)
@@ -558,7 +558,7 @@ function S:CreateModern(page)
 	local report = UI.Button(body, "Report a problem", 150, function() ns.Main:ShowPage("threads") ns.Main:Report() end)
 	report:SetPoint("LEFT", selftest, "RIGHT", 6, 0)
 	UI.Tooltip(report, "Report a problem", "Puts diagnostics in the message box and attaches a screenshot, for the thread you have open (or a new one).")
-	for _, w in ipairs({ self.voice, self.design, self.palette, self.accent, self.size, test, reload, resetTracker, selftest, report }) do
+	for _, w in ipairs({ self.voice, self.design, self.palette, self.accent, self.size, self.reading, test, reload, resetTracker, selftest, report }) do
 		table.insert(self.controls, w)
 	end
 
@@ -614,7 +614,7 @@ end
 -- Drop the page's controls: the window is being rebuilt under another design.
 function S:Teardown()
 	self.page, self.checks, self.controls = nil, nil, nil
-	self.voice, self.size, self.design, self.accent, self.opacity, self.info = nil, nil, nil, nil, nil, nil
+	self.voice, self.size, self.design, self.accent, self.opacity, self.reading, self.info = nil, nil, nil, nil, nil, nil, nil
 	self.palette = nil
 	self.rows, self.nav, self.search, self.heading, self.subhead = nil, nil, nil, nil, nil
 	self.infoRow, self.content, self.empty, self.section = nil, nil, nil, nil

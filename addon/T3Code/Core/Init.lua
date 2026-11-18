@@ -116,6 +116,7 @@ local DEFAULTS = {
 		palette = "tokyo-night", -- modern window only: one of Omarchy's built-in themes (UI/Palettes.lua)
 		accent = "class", -- modern window only: class (the player's class color) | theme (the theme's accent)
 		windowClear = 6, -- modern window only: 0 is solid, 100 lets the world show through
+		readingFont = "inter", -- inter | atkinson | game, the transcript's body text
 		listWidth = 300, -- the thread list, dragged wider or narrower from its edge
 	},
 	drafts = {},

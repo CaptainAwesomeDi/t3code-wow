@@ -310,6 +310,7 @@ end
 -- Side chats: fork the open thread, land on the child, come Back to the parent.
 do
 	local parent = firstThread.id
+	local savedView = data.view
 	local function step(extra)
 		data.gen = (ns.db.gen or 0) + (extra or 1)
 		return data.gen
@@ -355,7 +356,7 @@ do
 		if t.id == "child1" then table.remove(data.threads, i) break end
 	end
 	data.bridge.sc = nil
-	data.view = nil
+	data.view = savedView
 	step()
 	ns.Transport:Apply(data)
 end

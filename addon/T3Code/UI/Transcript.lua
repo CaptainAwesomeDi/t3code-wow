@@ -99,15 +99,66 @@ local function ShowSpeak(button, m)
 	UI.TintActive(button.Icon, button.reading)
 end
 
+-- Stacked font strings: a reply is one face, and a fenced block is another.
+-- The scroll row recycles, so spare lines are hidden rather than thrown away.
+local function PlaceLines(frame, point, rel, relPoint, x, y, text, width, note)
+	local blocks = ns.Fonts.Blocks(text)
+	local lines = frame.Lines
+	if not lines then
+		lines = {}
+		frame.Lines = lines
+	end
+	local prev
+	for i, block in ipairs(blocks) do
+		local fs = lines[i]
+		if not fs then
+			fs = frame:CreateFontString(nil, "ARTWORK", UI.Font(note and "GameFontNormal" or "GameFontHighlight"))
+			lines[i] = fs
+		end
+		fs:Show()
+		fs:ClearAllPoints()
+		if i == 1 then
+			fs:SetPoint(point, rel, relPoint, x, y)
+		else
+			fs:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -BLOCK_GAP)
+		end
+		local role = block.kind == "code" and "mono" or (note and "note" or "body")
+		fs:SetWidth(width)
+		fs:SetJustifyH("LEFT")
+		fs:SetJustifyV("TOP")
+		fs:SetText(ns.Theme.Markup(block.text))
+		ns.Fonts.Apply(fs, role, block.text)
+		prev = fs
+	end
+	for i = #blocks + 1, #lines do
+		lines[i]:Hide()
+		lines[i]:SetText("")
+	end
+	if note then frame.Text = lines[1] else frame.Body = lines[1] end
+	local h = 0
+	for i = 1, #blocks do
+		if i > 1 then h = h + BLOCK_GAP end
+		h = h + math.ceil(lines[i]:GetStringHeight() or 0)
+	end
+	return h
+end
+
+local function Grow(ed, needed)
+	if needed <= (ed.height or 0) + 1 then return end
+	ed.height = needed
+	if ed.fixKey then T.heightFix[ed.fixKey] = needed end
+	if T.reflowQueued then return end
+	T.reflowQueued = true
+	C_Timer.After(0, function()
+		T.reflowQueued = nil
+		T:Reflow()
+	end)
+end
+
 local function InitMessage(frame, ed)
-	if not frame.Body then
+	if not frame.Label then
 		frame.Label = frame:CreateFontString(nil, "ARTWORK", UI.Font("GameFontNormalSmall"))
 		frame.Label:SetPoint("TOPLEFT", PAD_X, -6)
-		frame.Body = frame:CreateFontString(nil, "ARTWORK", UI.Font(BODY_FONT))
-		frame.Body:SetPoint("TOPLEFT", frame.Label, "BOTTOMLEFT", 0, -4)
-		frame.Body:SetJustifyH("LEFT")
-		frame.Body:SetJustifyV("TOP")
-		frame.Body:SetSpacing(BODY_SPACING)
 		frame.Speak = UI.IconButton(frame, "voicechat-icon-speaker", 18, nil, nil)
 		frame.Speak.Background:Hide()
 		frame.Speak:SetPoint("TOPRIGHT", -6, -4)
@@ -139,10 +190,6 @@ local function InitNote(frame, ed)
 		frame.Icon = frame:CreateTexture(nil, "ARTWORK")
 		frame.Icon:SetSize(16, 16)
 		frame.Icon:SetPoint("TOPLEFT", PAD_X, -6)
-		frame.Text = frame:CreateFontString(nil, "ARTWORK", UI.Font("GameFontNormal"))
-		frame.Text:SetPoint("TOPLEFT", frame.Icon, "TOPRIGHT", 6, 0)
-		frame.Text:SetJustifyH("LEFT")
-		frame.Text:SetJustifyV("TOP")
 		frame.Anim = frame.Icon:CreateAnimationGroup()
 		local rot = frame.Anim:CreateAnimation("Rotation")
 		rot:SetDegrees(-360)
@@ -311,15 +358,16 @@ local function EchoArrived(echo, m)
 end
 
 local function MessageElement(msg, echo)
-	local width = T:BodyWidth()
-	local fixKey = math.floor(width) .. ":" .. msg.t
-	local height = math.max(34 + Measure(msg.t, width, UI.Font(BODY_FONT), BODY_SPACING), T.heightFix[fixKey] or 0)
+	local width = T:ReadingWidth()
+	local fixKey = ns.Fonts.Choice() .. ":" .. math.floor(width) .. ":" .. msg.t
+	local height = math.max(34 + ContentHeight(msg.t, width, false), T.heightFix[fixKey] or 0)
 	return { kind = "msg", msg = msg, echo = echo, height = height, fixKey = fixKey }
 end
 
 local function Note(text, icon, opts)
-	local width = T:BodyWidth() - 22
-	local e = { kind = "note", text = text, icon = icon, height = 14 + math.max(16, Measure(text, width, UI.Font("GameFontNormal"))) }
+	local width = T:ReadingWidth(T:BodyWidth() - 22)
+	local fixKey = "n:" .. ns.Fonts.Choice() .. ":" .. math.floor(width) .. ":" .. text
+	local e = { kind = "note", text = text, icon = icon, fixKey = fixKey, height = math.max(14 + math.max(16, ContentHeight(text, width, true)), T.heightFix[fixKey] or 0) }
 	if opts then for k, v in pairs(opts) do e[k] = v end end
 	return e
 end
