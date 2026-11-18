@@ -3,13 +3,22 @@
 
 local _, ns = ...
 local UI = ns.UI
+local Theme = ns.Theme
 
 local M = {}
 ns.Main = M
 
 local WIDTH, HEIGHT = 940, 640
+local MIN_W, MIN_H = 760, 480
 local LIST_W = 300
+local LIST_MIN = 180
+local LIST_KEEP = 420 -- the conversation keeps at least this much of the window
 local COMPOSER_H = 92
+local BAND_H = 22 -- one short row for the title
+-- The modern footer sits 16px up. The classic frame keeps the
+-- buttons in its own bottom border (4px). The pages end above the row.
+local BAR_Y_MODERN = 16
+local BAR_CLEAR = 52
 
 M.page = "threads"
 M.mode = "thread" -- "thread" | "new"
@@ -17,19 +26,99 @@ M.mode = "thread" -- "thread" | "new"
 -- The bottom bar's buttons, left to right.
 M.BAR_KEYS = { "Refresh", "New", "Back", "Stop", "Mic", "Speak", "Shot", "Insert", "Send" }
 
+-- A corner grip: drag it to resize the window, and the size is kept for next
+-- time. Made after the button bar so its corner sits on top of it.
+local function CreateResizeGrip(f)
+	f:SetResizable(true)
+	local minW, minH = M:MinSize()
+	if f.SetResizeBounds then f:SetResizeBounds(minW, minH) end
+	local grip = CreateFrame("Frame", nil, f)
+	grip:SetSize(16, 16)
+	grip:SetPoint("BOTTOMRIGHT", -2, 2)
+	grip:EnableMouse(true)
+	grip:RegisterForDrag("LeftButton")
+	grip:SetScript("OnDragStart", function() f:StartSizing("BOTTOMRIGHT") end)
+	grip:SetScript("OnDragStop", function()
+		f:StopMovingOrSizing()
+		local w, h = f:GetWidth(), f:GetHeight()
+		w, h = math.max(minW, math.floor(w)), math.max(minH, math.floor(h))
+		f:SetSize(w, h)
+		ns.db.settings.windowSize = { w, h }
+	end)
+	local theme = Theme.Get()
+	if theme then
+		-- Three strokes, shorter toward the corner, so the mark reads as a triangle.
+		grip:SetSize(18, 18)
+		local mark = grip:CreateTexture(nil, "ARTWORK")
+		mark:SetAllPoints()
+		mark:SetTexture(UI.LineIcon("grip"))
+		mark:SetVertexColor(theme.muted[1], theme.muted[2], theme.muted[3], 1)
+	else
+		-- The game's own corner grip. Drawn lines rotate into a red square on this
+		-- client and sit badly on the gold frame.
+		grip:SetSize(16, 16)
+		grip:ClearAllPoints()
+		grip:SetPoint("BOTTOMRIGHT", -6, 6)
+		local mark = grip:CreateTexture(nil, "ARTWORK")
+		mark:SetAllPoints()
+		mark:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+		grip:SetScript("OnEnter", function() mark:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight") end)
+		grip:SetScript("OnLeave", function() mark:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up") end)
+	end
+	f.ResizeGrip = grip
+end
+
+-- The modern window can shrink. The classic pages are laid out for the default
+-- size and don't scroll, so the game's frame only grows.
+function M:MinSize()
+	if Theme.Get() then return MIN_W, MIN_H end
+	return WIDTH, HEIGHT
+end
+
 ---------------------------------------------------------------------------
 -- Frame
 
 local function CreateSideTab(f, index, icon, tooltip, page)
-	local tab = CreateFrame("Frame", nil, f, "LargeSideTabButtonTemplate")
-	tab.Icon:SetTexture(icon)
-	tab:SetFillToInterior(true, 40)
-	tab.tooltipText = tooltip
+	local theme = Theme.Get()
+	local tab
+	if theme then
+		-- A flat square; the active page's tab carries the accent down its left edge.
+		tab = CreateFrame("Button", nil, f)
+		tab:SetSize(40, 40)
+		local bg = Theme.Solid(tab, theme.panelAlt)
+		bg:SetAllPoints()
+		-- No left rule: the tab grows out of the window's own border.
+		Theme.Edges(tab, theme.hairline, true)
+		local bar = Theme.Solid(tab, theme.accent, "ARTWORK")
+		bar:SetWidth(2)
+		bar:SetPoint("TOPLEFT")
+		bar:SetPoint("BOTTOMLEFT")
+		bar:Hide()
+		function tab:SetChecked(on)
+			bar:SetShown(on and true or false)
+			local c = on and theme.text or theme.muted
+			self.Icon:SetVertexColor(c[1], c[2], c[3], 1)
+		end
+		local hl = Theme.Solid(tab, theme.hover, "HIGHLIGHT")
+		hl:SetAllPoints()
+		tab.Icon = tab:CreateTexture(nil, "ARTWORK")
+		tab.Icon:SetSize(18, 18)
+		tab.Icon:SetPoint("CENTER")
+		tab.Icon:SetTexture(icon)
+		tab.Icon:SetVertexColor(theme.muted[1], theme.muted[2], theme.muted[3], 1)
+		UI.Tooltip(tab, tooltip)
+		tab:SetScript("OnClick", function() M:ShowPage(page) end)
+	else
+		tab = CreateFrame("Frame", nil, f, "LargeSideTabButtonTemplate")
+		tab.Icon:SetTexture(icon)
+		tab:SetFillToInterior(true, 40)
+		tab.tooltipText = tooltip
+		tab:SetCustomOnMouseUpHandler(function(_, button, upInside)
+			if button == "LeftButton" and upInside then M:ShowPage(page) end
+		end)
+		tab:EnableMouse(true)
+	end
 	tab:SetPoint("TOPLEFT", f, "TOPRIGHT", 0, -36 - (index - 1) * 48)
-	tab:SetCustomOnMouseUpHandler(function(_, button, upInside)
-		if button == "LeftButton" and upInside then M:ShowPage(page) end
-	end)
-	tab:EnableMouse(true)
 	tab.page = page
 	return tab
 end
@@ -39,6 +128,11 @@ function M:Create()
 	local f = CreateFrame("Frame", "T3CodeFrame", UIParent, "ButtonFrameTemplate")
 	self.frame = f
 	f:SetSize(WIDTH, HEIGHT)
+	local savedSize = ns.db.settings.windowSize
+	if savedSize then
+		local minW, minH = self:MinSize()
+		f:SetSize(math.max(minW, savedSize[1] or WIDTH), math.max(minH, savedSize[2] or HEIGHT))
+	end
 	f:SetPoint("CENTER", 0, 20)
 	f:SetFrameStrata("HIGH")
 	f:SetToplevel(true)
@@ -48,7 +142,92 @@ function M:Create()
 	f:Hide()
 	f:SetTitle("T3 Code")
 	f:SetPortraitToAsset(ns.media .. "portrait")
-	tinsert(UISpecialFrames, "T3CodeFrame")
+	-- The modern design hides the game's ornate frame and paints its own: the
+	-- theme's background, an accent edge, and the title on that same ground. The
+	-- template's top streaks are a black gradient; they stay hidden.
+	local theme = Theme.Get()
+	if theme then
+		local function HideArt(frame)
+			if not frame or not frame.GetRegions then return end
+			for _, region in ipairs({ frame:GetRegions() }) do
+				if region.Hide then region:Hide() end
+			end
+		end
+		-- By name: a piece the template doesn't have must not stop the loop.
+		for _, key in ipairs({ "NineSlice", "Bg", "PortraitContainer", "Portrait", "TitleContainer", "CloseButton", "TopTileStreaks", "TitleBg" }) do
+			local piece = f[key]
+			if piece then piece:Hide() end
+		end
+		HideArt(f)
+		if f.Inset then
+			if f.Inset.NineSlice then f.Inset.NineSlice:Hide() end
+			HideArt(f.Inset)
+		end
+		-- One ground for the whole window. Its alpha is the transparency setting.
+		local ground = { theme.windowBg[1], theme.windowBg[2], theme.windowBg[3], 1 }
+		f.ModernBg = Theme.Solid(f, ground)
+		f.ModernBg:SetAllPoints()
+		-- The window's edge is the theme's accent, as Hyprland draws the active window.
+		f.ModernEdges = { Theme.Edges(f, theme.popupBorder) }
+		f.ModernBand = Theme.Solid(f, ground)
+		f.ModernBand:SetHeight(BAND_H)
+		f.ModernBand:SetPoint("TOPLEFT")
+		f.ModernBand:SetPoint("TOPRIGHT")
+		f.ModernBandRule = Theme.Solid(f, theme.hairline, "ARTWORK")
+		f.ModernBandRule:SetHeight(1)
+		f.ModernBandRule:SetPoint("TOPLEFT", 0, -BAND_H)
+		f.ModernBandRule:SetPoint("TOPRIGHT", 0, -BAND_H)
+		M:ApplyOpacity()
+		if f.Inset then
+			if f.Inset.Bg then f.Inset.Bg:Hide() end
+			-- The template's inset runs down into the button row. Lift its bottom
+			-- edge so the list and the message box stop above Refresh and Send.
+			local n = f.Inset.GetNumPoints and f.Inset:GetNumPoints() or 0
+			local pts, sawBottom = {}, false
+			local topCap = -(BAND_H + 2)
+			for i = 1, n do
+				local point, relTo, relPoint, x, y = f.Inset:GetPoint(i)
+				if point == "BOTTOM" or point == "BOTTOMLEFT" or point == "BOTTOMRIGHT" then
+					sawBottom = true
+					y = math.max(y or 0, BAR_CLEAR)
+				elseif point == "TOP" or point == "TOPLEFT" or point == "TOPRIGHT" then
+					-- The portrait frame starts the pages far below the title. The thin
+					-- bar doesn't need that gap.
+					y = math.max(y or topCap, topCap)
+				end
+				pts[i] = { point, relTo, relPoint, x, y }
+			end
+			if sawBottom then
+				f.Inset:ClearAllPoints()
+				for _, p in ipairs(pts) do
+					if p[1] then f.Inset:SetPoint(p[1], p[2], p[3], p[4] or 0, p[5] or 0) end
+				end
+			else
+				f.Inset:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -2, BAR_CLEAR)
+			end
+		end
+		f.ModernTitle = f:CreateFontString(nil, "ARTWORK", "T3ModernTitle")
+		f.ModernTitle:SetPoint("LEFT", f, "TOPLEFT", 12, -(BAND_H / 2))
+		f.ModernTitle:SetText("T3 Code")
+		-- Near-white. The accent stays on what's selected.
+		Theme.SetText(f.ModernTitle, theme.text)
+		-- A quiet × in the band's corner, no button chrome.
+		local close = CreateFrame("Button", nil, f)
+		close:SetSize(16, 16)
+		close:SetPoint("TOPRIGHT", -6, -3)
+		close.Text = close:CreateFontString(nil, "ARTWORK", "T3ModernBody")
+		close.Text:SetPoint("CENTER", 0, 0)
+		close.Text:SetText("×")
+		local closeHl = Theme.Solid(close, theme.hover, "HIGHLIGHT")
+		closeHl:SetAllPoints()
+		close:SetScript("OnClick", function() f:Hide() end)
+		UI.Tooltip(close, "Close")
+		f.ModernClose = close
+	end
+	-- The name is what matters in UISpecialFrames, and it survives rebuilds.
+	local named
+	for _, n in ipairs(UISpecialFrames) do if n == "T3CodeFrame" then named = true end end
+	if not named then tinsert(UISpecialFrames, "T3CodeFrame") end
 
 	-- Drag by the title bar.
 	local drag = CreateFrame("Frame", nil, f)
@@ -77,11 +256,55 @@ function M:Create()
 	f.Status = UI.Text(f, "GameFontGreenSmall", "CENTER")
 	f.Status:SetPoint("TOP", f.Subtitle, "BOTTOM", 0, -2)
 	f.Status:SetWidth(WIDTH - 220)
+	if theme then
+		-- Same row as the title, so the thread name doesn't take a second line.
+		f.Subtitle:SetFontObject("T3ModernSmallDim")
+		f.Subtitle:ClearAllPoints()
+		f.Subtitle:SetPoint("LEFT", f.ModernTitle, "RIGHT", 12, 0)
+		f.Subtitle:SetJustifyH("LEFT")
+		f.Subtitle:SetWordWrap(false)
+		f.Status:SetFontObject("T3ModernSmall")
+		f.Status:ClearAllPoints()
+		f.Status:SetJustifyH("RIGHT")
+		f.Status:SetWordWrap(false)
+		f.Status:SetWidth(240)
+	end
+	-- The centered texts are sized for the default window; keep up with a resize.
+	f:HookScript("OnSizeChanged", ns.Safe(function(self)
+		if Theme.Get() then
+			local room = math.max(80, self:GetWidth() - 320)
+			self.Subtitle:SetWidth(math.min(280, room))
+			M:ApplyListWidth(ns.db.settings.listWidth)
+			return
+		end
+		M:ApplyListWidth(ns.db.settings.listWidth)
+		local w = math.max(200, self:GetWidth() - 220)
+		self.Subtitle:SetWidth(w)
+		self.Status:SetWidth(w)
+	end))
 
 	-- Collapse the thread list (arrow under the close button).
-	f.SidebarToggle = UI.IconButton(f, "common-icon-backarrow", 24, "Hide the thread list", function() M:ToggleSidebar() end)
-	if not f.SidebarToggle.Icon:GetAtlas() then f.SidebarToggle.Icon:SetAtlas("common-dropdown-icon-back") end
+	f.SidebarToggle = UI.IconButton(f, "common-icon-backarrow", theme and 18 or 24, "Hide the thread list", function() M:ToggleSidebar() end)
+	-- A line icon has no atlas. The fallback is only for the classic button, whose
+	-- first atlas is missing on some clients. Applying it here replaced the chevron
+	-- with the game's yellow triangle.
+	if not Theme.Get() and not f.SidebarToggle.Icon:GetAtlas() then f.SidebarToggle.Icon:SetAtlas("common-dropdown-icon-back") end
 	f.SidebarToggle:SetPoint("TOPRIGHT", -10, -32)
+	if theme then
+		-- In the modern band, beside the close. The drag strip used to run across
+		-- this button, so the chevron itself moved the window and only the empty
+		-- edge of the button toggled the list.
+		f.SidebarToggle:ClearAllPoints()
+		f.SidebarToggle:SetPoint("TOPRIGHT", -28, -2)
+		-- Flush to the chevron, not stretched across the bar.
+		f.Status:SetPoint("RIGHT", f.SidebarToggle, "LEFT", -8, 0)
+		drag:ClearAllPoints()
+		drag:SetPoint("TOPLEFT", 8, 0)
+		drag:SetPoint("TOPRIGHT", -52, 0)
+		drag:SetHeight(BAND_H)
+		f.SidebarToggle:SetFrameLevel(drag:GetFrameLevel() + 5)
+		if f.ModernClose then f.ModernClose:SetFrameLevel(drag:GetFrameLevel() + 5) end
+	end
 
 	-- Shown when the session's live updates are running low: a reload frees them.
 	f.RefreshSlots = UI.Button(f, "Refresh live updates", 170, function() ReloadUI() end)
@@ -101,12 +324,13 @@ function M:Create()
 
 	-- Bottom button bar.
 	self:CreateButtonBar(f)
+	CreateResizeGrip(f)
 
 	-- Side tabs.
 	f.Tabs = {
-		CreateSideTab(f, 1, ns.media .. "icon", "Threads", "threads"),
-		CreateSideTab(f, 2, "Interface\\Icons\\INV_Scroll_08", "Usage limits", "usage"),
-		CreateSideTab(f, 3, "Interface\\Icons\\INV_Misc_Gear_01", "Settings", "settings"),
+		CreateSideTab(f, 1, theme and UI.LineIcon("threads") or (ns.media .. "icon"), "Threads", "threads"),
+		CreateSideTab(f, 2, theme and UI.LineIcon("chart") or "Interface\\Icons\\INV_Scroll_08", "Usage limits", "usage"),
+		CreateSideTab(f, 3, theme and UI.LineIcon("gear") or "Interface\\Icons\\INV_Misc_Gear_01", "Settings", "settings"),
 	}
 
 	f:SetScript("OnShow", ns.Safe(function()
@@ -132,23 +356,95 @@ function M:Create()
 	return f
 end
 
+-- The widest the list may be in the window as it is now.
+function M:ListMax()
+	local f = self.frame
+	if not f then return math.huge end
+	return math.max(LIST_MIN, (f:GetWidth() or WIDTH) - LIST_KEEP)
+end
+
+-- The list's width as drawn: the width the player chose, narrowed while the window
+-- is too small for it.
+function M:ListWidth()
+	local w = (ns.db and ns.db.settings.listWidth) or LIST_W
+	return math.max(LIST_MIN, math.min(self:ListMax(), w))
+end
+
+-- The thread list's width, kept between a readable minimum and whatever still
+-- leaves the conversation room. Moves the Back button with it. Only a drag on the
+-- divider (`save`) changes the width kept for next time; a smaller window narrows
+-- the list without forgetting it.
+function M:ApplyListWidth(w, save)
+	local f = self.frame
+	local page = f and f.Pages and f.Pages.threads
+	if not page or not page.Left then return end
+	w = math.max(LIST_MIN, math.min(self:ListMax(), math.floor(w or LIST_W)))
+	if save then ns.db.settings.listWidth = w end
+	page.Left:SetWidth(w)
+	if page.Left:IsShown() and f.Bar and f.Bar.Back then
+		local barY = Theme.Get() and BAR_Y_MODERN or 4
+		f.Bar.Back:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", w + 18, barY)
+	end
+end
+
 function M:CreateThreadsPage(page)
 	-- Left: project filter + thread list.
 	local left = CreateFrame("Frame", nil, page)
 	left:SetPoint("TOPLEFT")
 	left:SetPoint("BOTTOMLEFT")
-	left:SetWidth(LIST_W)
+	left:SetWidth(self:ListWidth())
 	page.Left = left
 
 	local divider = page:CreateTexture(nil, "ARTWORK")
-	divider:SetAtlas("UI-Frame-Divider-Vertical") -- harmless if missing
-	if not divider:GetAtlas() then
-		divider:SetColorTexture(0.45, 0.36, 0.2, 0.6)
-		divider:SetWidth(2)
+	local theme = Theme.Get()
+	if theme then
+		Theme.Paint(divider, theme.hairline)
+		divider:SetWidth(1)
+	else
+		divider:SetAtlas("UI-Frame-Divider-Vertical") -- harmless if missing
+		if not divider:GetAtlas() then
+			divider:SetColorTexture(0.45, 0.36, 0.2, 0.6)
+			divider:SetWidth(2)
+		end
 	end
 	divider:SetPoint("TOPLEFT", left, "TOPRIGHT", 0, -2)
 	divider:SetPoint("BOTTOMLEFT", left, "BOTTOMRIGHT", 0, 2)
 	page.Divider = divider
+
+	-- A wider invisible grip on the divider: drag it to make the list wider.
+	local split = CreateFrame("Frame", nil, page)
+	split:SetWidth(7)
+	split:SetPoint("TOP", left, "TOPRIGHT", 0, 0)
+	split:SetPoint("BOTTOM", left, "BOTTOMRIGHT", 0, 0)
+	split:SetFrameLevel((page:GetFrameLevel() or 1) + 5)
+	split:EnableMouse(true)
+	local hint = split:CreateTexture(nil, "BACKGROUND")
+	if theme then
+		Theme.Paint(hint, theme.hover)
+	else
+		hint:SetColorTexture(1, 0.82, 0, 0.45)
+	end
+	hint:SetAllPoints()
+	hint:Hide()
+	split:SetScript("OnEnter", function() hint:Show() end)
+	split:SetScript("OnLeave", function(self) if not self.dragging then hint:Hide() end end)
+	split:SetScript("OnMouseDown", function(self, button)
+		if button ~= "LeftButton" then return end
+		self.dragging = true
+		hint:Show()
+		self:SetScript("OnUpdate", function()
+			local scale = page:GetEffectiveScale() or 1
+			local x = GetCursorPosition() / scale
+			local origin = page:GetLeft() or 0
+			M:ApplyListWidth(x - origin, true)
+		end)
+	end)
+	split:SetScript("OnMouseUp", function(self)
+		self.dragging = false
+		self:SetScript("OnUpdate", nil)
+		if not self:IsMouseOver() then hint:Hide() end
+	end)
+	page.Split = split
 
 	ns.ThreadList:Create(left)
 
@@ -163,7 +459,11 @@ function M:CreateThreadsPage(page)
 	header:SetPoint("TOPRIGHT", -4, -4)
 	header:SetHeight(30)
 	local hbg = header:CreateTexture(nil, "BACKGROUND")
-	hbg:SetAtlas("common-button-list-collapseExpand")
+	if theme then
+		Theme.Paint(hbg, theme.panelAlt)
+	else
+		hbg:SetAtlas("common-button-list-collapseExpand")
+	end
 	hbg:SetAllPoints()
 	header.Text = UI.Text(header, "GameFontHighlight", "CENTER")
 	header.Text:SetPoint("LEFT", 12, 0)
@@ -229,7 +529,7 @@ function M:CreateThreadsPage(page)
 	composer:SetHeight(COMPOSER_H)
 	right.ComposerInset = composer
 
-	local box = CreateFrame("Frame", nil, composer, "T3CodeComposerTemplate")
+	local box = CreateFrame("Frame", nil, composer, theme and "T3CodeComposerModernTemplate" or "T3CodeComposerTemplate")
 	box:SetPoint("TOPLEFT", 8, -6)
 	box:SetPoint("BOTTOMRIGHT", -8, 18)
 	box:RegisterCallback("OnEnterPressed", function()
@@ -253,7 +553,7 @@ function M:CreateThreadsPage(page)
 	self:SetPlaceholder("Message the agent  (Shift+Enter for a new line)")
 
 	local counter = UI.Text(composer, "GameFontDisableSmall", "RIGHT")
-	counter:SetPoint("BOTTOMRIGHT", -8, 5)
+	counter:SetPoint("BOTTOMRIGHT", theme and -12 or -8, 6)
 	right.Counter = counter
 
 	local hint = UI.Text(composer, "GameFontDisableSmall", "LEFT")
@@ -266,18 +566,22 @@ end
 
 function M:CreateButtonBar(f)
 	local bar = {}
+	-- The modern icon buttons are flat squares edge to edge; give them a little
+	-- more air than the game's own padded art needs.
+	local gap = Theme.Get() and 9 or 6
 	bar.Refresh = UI.Button(f, "Refresh", 110, function()
 		ns.Transport:Send("ping")
 		PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
 	end)
-	bar.Refresh:SetPoint("BOTTOMLEFT", 6, 4)
+	local barY = Theme.Get() and BAR_Y_MODERN or 4
+	bar.Refresh:SetPoint("BOTTOMLEFT", 6, barY)
 	UI.Tooltip(bar.Refresh, "Refresh", "Ask the bridge for a fresh update now.")
 
 	bar.New = UI.Button(f, "New Thread", 130, function() M:StartNewThread() end)
 	bar.New:SetPoint("LEFT", bar.Refresh, "RIGHT", 60, 0)
 
 	bar.Back = UI.Button(f, "Back", 110, function() M:Back() end)
-	bar.Back:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", LIST_W + 18, 4)
+	bar.Back:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", self:ListWidth() + 18, barY)
 
 	bar.Stop = UI.IconButton(f, "common-icon-redx", 26, "Stop the agent", function()
 		if ns.viewId then
@@ -288,7 +592,7 @@ function M:CreateButtonBar(f)
 	bar.Stop:SetPoint("LEFT", bar.Back, "RIGHT", 18, 0)
 
 	bar.Mic = UI.IconButton(f, "voicechat-icon-mic", 26, "Dictate", function() M:ToggleDictation() end)
-	bar.Mic:SetPoint("LEFT", bar.Stop, "RIGHT", 6, 0)
+	bar.Mic:SetPoint("LEFT", bar.Stop, "RIGHT", gap, 0)
 	UI.Tooltip(bar.Mic, nil, function()
 		local b = ns.Store.data.bridge or {}
 		if b.dictationHint then return b.dictationHint end
@@ -297,6 +601,10 @@ function M:CreateButtonBar(f)
 	end)
 
 	bar.Speak = UI.IconButton(f, "voicechat-icon-speaker", 26, "Read aloud", function()
+		if ns.Reading() then
+			ns.Hush()
+			return
+		end
 		local v = ns.Store:View()
 		local last
 		if v and v.msgs then
@@ -306,21 +614,23 @@ function M:CreateButtonBar(f)
 		end
 		if last then ns.Speak(last.t, ns.viewId, last.n) end
 	end)
-	bar.Speak:SetPoint("LEFT", bar.Mic, "RIGHT", 6, 0)
+	bar.Speak:SetPoint("LEFT", bar.Mic, "RIGHT", gap, 0)
 
 	bar.Shot = UI.IconButton(f, "Interface\\Icons\\INV_Misc_Spyglass_03", 26, nil, nil)
-	bar.Shot:SetPoint("LEFT", bar.Speak, "RIGHT", 6, 0)
+	bar.Shot:SetPoint("LEFT", bar.Speak, "RIGHT", gap, 0)
 	bar.Shot:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	bar.Shot:SetScript("OnClick", function(_, button)
 		if button == "RightButton" then M:RemoveScreenshots() else M:AttachScreenshot() end
 	end)
 	UI.Tooltip(bar.Shot, "Attach a screenshot", "Adds a screenshot of the game to your next message. Right-click to remove it. /t3 report also adds diagnostics.")
-	UI.Tooltip(bar.Speak, nil, "Read the latest reply aloud.")
+	UI.Tooltip(bar.Speak, nil, function()
+		return ns.Reading() and "Stop reading aloud." or "Read the latest reply aloud."
+	end)
 
 	-- The "/" and "$" suggestions as a list, for a controller, which can't type them.
 	-- It opens the shared list, so it carries what the list reads from its owner.
 	bar.Insert = UI.IconButton(f, "Interface\\Icons\\INV_Misc_Book_09", 26, nil, function(self) M:OpenCommandList(self) end)
-	bar.Insert:SetPoint("LEFT", bar.Shot, "RIGHT", 6, 0)
+	bar.Insert:SetPoint("LEFT", bar.Shot, "RIGHT", gap, 0)
 	bar.Insert.options = {}
 	bar.Insert.listWidth = 360
 	bar.Insert.listAbove = true
@@ -332,8 +642,8 @@ function M:CreateButtonBar(f)
 		return "The model this message goes to has no commands or skills."
 	end)
 
-	bar.Send = UI.Button(f, "Send", 110, function() M:Send() end)
-	bar.Send:SetPoint("BOTTOMRIGHT", -6, 4)
+	bar.Send = UI.Button(f, "Send", 110, function() M:Send() end, true)
+	bar.Send:SetPoint("BOTTOMRIGHT", -26, barY) -- clear of the resize grip
 	f.Bar = bar
 end
 
@@ -362,6 +672,7 @@ function M:ToggleSidebar(show)
 	if show == nil then show = not page.Left:IsShown() end
 	page.Left:SetShown(show)
 	page.Divider:SetShown(show)
+	if page.Split then page.Split:SetShown(show) end
 	page.Right:ClearAllPoints()
 	if show then
 		page.Right:SetPoint("TOPLEFT", page.Left, "TOPRIGHT", 4, 0)
@@ -372,10 +683,11 @@ function M:ToggleSidebar(show)
 	self.frame.Bar.Refresh:SetShown(show)
 	self.frame.Bar.New:SetShown(show)
 	self.frame.Bar.Back:ClearAllPoints()
+	local barY = Theme.Get() and BAR_Y_MODERN or 4
 	if show then
-		self.frame.Bar.Back:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", LIST_W + 18, 4)
+		self.frame.Bar.Back:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", self:ListWidth() + 18, barY)
 	else
-		self.frame.Bar.Back:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", 6, 4)
+		self.frame.Bar.Back:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", 6, barY)
 	end
 	self.frame.SidebarToggle.Icon:SetRotation(show and 0 or math.pi)
 	ns.Transcript:Relayout()
@@ -495,16 +807,23 @@ function M:OpenCustomSnooze()
 		p:SetPoint("TOPRIGHT", header.Snooze, "BOTTOMRIGHT", 0, -2)
 		p:EnableMouse(true)
 		p:SetClampedToScreen(true)
+		local theme = Theme.Get()
 		local bg = p:CreateTexture(nil, "BACKGROUND")
-		bg:SetAtlas("common-dropdown-bg")
-		bg:SetPoint("TOPLEFT", -10, 3)
-		bg:SetPoint("BOTTOMRIGHT", 10, -3)
-		bg:SetAlpha(0.95)
-		if not bg:GetAtlas() then bg:SetColorTexture(0.05, 0.05, 0.05, 0.95) end
-		-- Solid behind the text: the transcript underneath would show through the art.
-		local solid = p:CreateTexture(nil, "BACKGROUND", nil, -1)
-		solid:SetAllPoints()
-		solid:SetColorTexture(0.03, 0.03, 0.03, 1)
+		if theme then
+			Theme.Paint(bg, theme.overlay)
+			bg:SetAllPoints()
+			Theme.Edges(p, theme.popupBorder)
+		else
+			bg:SetAtlas("common-dropdown-bg")
+			bg:SetPoint("TOPLEFT", -10, 3)
+			bg:SetPoint("BOTTOMRIGHT", 10, -3)
+			bg:SetAlpha(0.95)
+			if not bg:GetAtlas() then bg:SetColorTexture(0.05, 0.05, 0.05, 0.95) end
+			-- Solid behind the text: the transcript underneath would show through the art.
+			local solid = p:CreateTexture(nil, "BACKGROUND", nil, -1)
+			solid:SetAllPoints()
+			solid:SetColorTexture(0.03, 0.03, 0.03, 1)
+		end
 		p.Title = UI.Text(p, "GameFontNormal", "LEFT")
 		p.Title:SetPoint("TOPLEFT", 14, -12)
 		p.Title:SetText("Snooze until")
@@ -515,6 +834,21 @@ function M:OpenCustomSnooze()
 		p.Box:SetMaxLetters(40)
 		p.Box:SetScript("OnEnterPressed", function() M:SubmitCustomSnooze() end)
 		p.Box:SetScript("OnEscapePressed", function() p:Hide() end)
+		if theme then
+			-- The kit's input: glass with a border, the text in the foreground.
+			for _, key in ipairs({ "Left", "Middle", "Right" }) do
+				if p.Box[key] then p.Box[key]:Hide() end
+			end
+			local well = Theme.Solid(p.Box, theme.panel)
+			well:SetPoint("TOPLEFT", -6, 0)
+			well:SetPoint("BOTTOMRIGHT")
+			p.Box:SetFontObject("T3ModernBody")
+			p.Box:SetTextInsets(0, 4, 0, 0)
+			local edge = CreateFrame("Frame", nil, p.Box)
+			edge:SetPoint("TOPLEFT", -6, 0)
+			edge:SetPoint("BOTTOMRIGHT")
+			Theme.Edges(edge, theme.controlBorder)
+		end
 		p.Go = UI.Button(p, "Snooze", 76, function() M:SubmitCustomSnooze() end)
 		p.Go:SetPoint("LEFT", p.Box, "RIGHT", 6, 0)
 		p.Hint = UI.Text(p, "GameFontDisableSmall", "LEFT")
@@ -690,6 +1024,14 @@ function M:ShotHint()
 	end
 end
 
+-- The line under the message box: the screenshots attached, else on a thread what the
+-- controller's buttons do.
+function M:ShowHint()
+	local hint = self:ShotHint()
+	if not hint and self.mode ~= "new" and ns.Gamepad and ns.Gamepad:IsActive() then hint = ns.Gamepad:HintText() end
+	self.frame.Pages.threads.Right.Hint:SetText(hint or "")
+end
+
 function M:AttachScreenshot()
 	local key = self:ShotKey()
 	if not key then
@@ -741,6 +1083,54 @@ function M:ApplyScale()
 	self.frame:SetScale(scale)
 end
 
+-- The modern window's ground. 0 is solid; 100 lets the world show through.
+-- The game's own frames have no ground to change.
+function M:ApplyOpacity()
+	local f = self.frame
+	local theme = Theme.Get()
+	if not f or not theme or not f.ModernBg then return end
+	local clear = ns.db.settings.windowClear
+	if type(clear) ~= "number" then clear = 6 end
+	clear = math.max(0, math.min(100, clear))
+	local alpha = 1 - clear / 100
+	local bg = theme.windowBg
+	f.ModernBg:SetColorTexture(bg[1], bg[2], bg[3], alpha)
+	if f.ModernBand then f.ModernBand:SetColorTexture(bg[1], bg[2], bg[3], alpha) end
+end
+
+-- Switching designs rebuilds the window: each frame's look is chosen when it is
+-- made, so a fresh window is simpler and safer than re-skinning frames built under
+-- the other design. The open page, the draft in the message box and the window's
+-- place on screen all survive.
+function M:ApplyTheme()
+	local shown = self.frame and self.frame:IsShown() or false
+	local page = self.page or "threads"
+	local section = ns.Settings.section
+	self:SaveDraft()
+	ns.Suggest:Teardown()
+	if self.frame then self.frame:Hide() end
+	self.frame, self.composer, self.placeholder, self.snoozePanel = nil, nil, nil, nil
+	ns.ThreadList:Teardown()
+	ns.Transcript:Teardown()
+	ns.Family:Teardown()
+	ns.Usage:Teardown()
+	ns.Settings:Teardown()
+	ns.Gamepad:ResetCursor()
+	UI.ResetList()
+	ns.Toasts:ApplyTheme()
+	if ns.Tracker then ns.Tracker:Refresh() end
+	self:Create()
+	self:LoadDraft()
+	self:ShowPage(page)
+	-- Changing the accent rebuilds the window. Stay on the settings section
+	-- that was open, instead of landing back on Notices.
+	if section and ns.db.settings.theme == "modern" and ns.Settings.section then
+		ns.Settings.section = section
+		ns.Settings:Layout()
+	end
+	self.frame:SetShown(shown)
+end
+
 function M:ToggleDictation()
 	if self.dictating then
 		self.dictating = false
@@ -772,6 +1162,7 @@ local LINK_TEXT = {
 	waiting = { "orange", "Waiting for the bridge… (run t3code-wow install on your desktop)" },
 	stale = { "red", "Bridge not responding — is t3code-wow running?" },
 	t3offline = { "red", "Bridge connected, but T3 Code is offline" },
+	unheard = { "red", "T3 Code can't hear the game. Keep its top-left corner uncovered, and check t3code-wow status on your desktop." },
 	exhausted = { "orange", "Live updates paused — /reload to resume" },
 }
 
@@ -783,7 +1174,7 @@ function M:StatusLine()
 	local state = T:BridgeState()
 	local entry = LINK_TEXT[state] or LINK_TEXT.waiting
 	local text = ns.Color(entry[1], entry[2])
-	if #T.queue > 0 then
+	if #T.queue > 0 and state ~= "unheard" then
 		text = text .. ns.Color("grey", "  ·  sending…")
 	end
 	local left = T:SlotsLeft()
@@ -794,6 +1185,8 @@ function M:StatusLine()
 		text = text .. ns.Color("orange", "  ·  listening… release to finish")
 	elseif self.dictState == "transcribing" then
 		text = text .. ns.Color("orange", "  ·  transcribing…")
+	elseif ns.Reading() then
+		text = text .. ns.Color("orange", "  ·  reading aloud…")
 	end
 	return text
 end
@@ -871,7 +1264,7 @@ function M:Refresh()
 		header.Text:SetPoint("RIGHT", header.Project, "LEFT", -8, 0)
 		header.Text:SetJustifyH("RIGHT")
 		self:SetPlaceholder("Describe what the agent should do  (Shift+Enter for a new line)")
-		right.Hint:SetText(self:ShotHint() or "")
+		self:ShowHint()
 		f.Bar.Send:SetText("Start")
 	else
 		header.Text:ClearAllPoints()
@@ -933,7 +1326,7 @@ function M:Refresh()
 			header.Model:Hide()
 			header.Effort:Hide()
 		end
-		right.Hint:SetText(self:ShotHint() or (ns.Gamepad and ns.Gamepad:IsActive() and ns.Gamepad:HintText()) or "")
+		self:ShowHint()
 	end
 	f.Bar.Stop:SetEnabled(t ~= nil and (t.s == "working" or t.run) and self.mode ~= "new")
 	local fam = self.mode ~= "new" and ns.Store:Family()
@@ -943,7 +1336,9 @@ function M:Refresh()
 	local canDictate = self.dictating or not (bridge and bridge.dictationHint)
 	f.Bar.Mic:SetEnabled(canDictate)
 	f.Bar.Mic.Icon:SetDesaturated(not canDictate)
-	f.Bar.Mic.Icon:SetVertexColor(self.dictating and 1 or 1, self.dictating and 0.3 or 1, self.dictating and 0.3 or 1)
+	UI.TintActive(f.Bar.Mic.Icon, self.dictating)
+	local reading = ns.Reading()
+	UI.TintActive(f.Bar.Speak.Icon, reading)
 	f.Bar.Back:SetEnabled(self.mode == "new" or ns.viewId ~= nil or not f.Pages.threads.Left:IsShown())
 	local commands = ns.Store:Commands(self:NextProvider())
 	f.Bar.Insert:SetEnabled(commands ~= nil)
@@ -953,6 +1348,11 @@ function M:Refresh()
 	ns.ThreadList:Refresh()
 	ns.Family:Refresh()
 	ns.Transcript:Refresh()
+	ns.Transcript:ShowReading()
+	-- The thread title belongs to the threads page. The other pages name themselves.
+	if Theme.Get() and self.page ~= "threads" then
+		f.Subtitle:SetText(self.page == "usage" and "Usage" or "Settings")
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -1171,7 +1571,7 @@ function M:HandleDictation(d)
 		ns.Print("Didn't catch anything — hold to talk and try again.")
 	elseif d.state == "error" then
 		self.dictState = nil
-		ns.Print(ns.Color("red", "Dictation: " .. (d.err or "failed")))
+		ns.Print(ns.ChatColor("red", "Dictation: " .. (d.err or "failed")))
 	elseif d.state == "cancelled" then
 		self.dictState = nil
 	end
@@ -1183,6 +1583,9 @@ ns:On("DataChanged", function()
 end)
 
 ns:On("DataChanged", function()
+	if M.frame and M.frame:IsShown() then M:Refresh() end
+end)
+ns:On("ReadingChanged", function()
 	if M.frame and M.frame:IsShown() then M:Refresh() end
 end)
 ns:On("LinkChanged", function()
@@ -1213,7 +1616,7 @@ ns:On("CommandResult", function(r)
 	end
 	if r.ok == false and M.pendingSnooze and r.id == M.pendingSnooze.cmd then M.pendingSnooze = nil end
 	if r.ok == false and r.msg then
-		ns.Print(ns.Color("red", r.msg))
+		ns.Print(ns.ChatColor("red", r.msg))
 		if UIErrorsFrame then UIErrorsFrame:AddMessage("T3 Code: " .. r.msg, 1, 0.2, 0.2) end
 	end
 	if r.ok == false then

@@ -125,6 +125,39 @@ test('parseFrame reads the hashes of the parts the addon holds: projects, transc
   assert.equal(older.hello.hashes.fam, '', 'an addon without the family reports none');
 });
 
+test('a notification or task result T3 Code queued for the agent is left out of the transcript', () => {
+  const { b } = fakeBridge();
+  b.client = { session: 'sess', ui: 'ui1', ackedSeq: -1, flags: 'o', view: 't1', hashes: {} };
+  const at = '2026-11-01T00:00:00Z';
+  b.views.set('t1', {
+    projection: {
+      messages: [
+        { role: 'user', text: 'fix the build', createdBy: 'user', creationSource: 'web', createdAt: at },
+        { role: 'assistant', text: 'delegated', createdAt: at },
+        // A finished task's result, queued for the agent behind the run still going on.
+        { id: 'm3', role: 'user', text: 'Delegated task node:delegated-task:x (Fix the build) [completed]:\ndone', createdBy: 'agent', creationSource: 'server', delegatedCompletion: { taskId: 'node:delegated-task:x' }, createdAt: at },
+        { id: 'm4', role: 'user', text: 'and then the tests', createdBy: 'user', creationSource: 'web', createdAt: at },
+        // A watched pull request changing, queued the same way.
+        { id: 'm5', role: 'user', text: 'PR #7 checks passed', createdBy: 'agent', creationSource: 'server', notification: { kind: 'pull_request' }, createdAt: at },
+        // T3 Code shows a message it sent to resume a run ("Sent by T3 Code"), so the game does too.
+        { id: 'm6', role: 'user', text: 'Continue where you left off.', createdBy: 'agent', creationSource: 'server', createdAt: at },
+      ],
+      turnItems: [],
+      runtimeRequests: [],
+      // Both wait behind the run going on, but only one is a follow-up the player sent.
+      runs: [
+        { id: 'r3', status: 'queued', userMessageId: 'm3' },
+        { id: 'r4', status: 'queued', userMessageId: 'm4' },
+        { id: 'r5', status: 'queued', userMessageId: 'm5' },
+      ],
+    },
+    fetchedAt: Date.now(),
+  });
+  const { msgs, queued } = b.buildSnapshot().view;
+  assert.deepEqual(msgs.map((m) => [m.r, m.t]), [['u', 'fix the build'], ['a', 'delegated'], ['u', 'and then the tests'], ['u', 'Continue where you left off.']]);
+  assert.equal(queued, 1);
+});
+
 test('a publish leaves out what the addon already holds, but slots 1-3 stay complete', needsLua, () => {
   const { b, dir } = fakeBridge();
   b.client = { session: 'sess', ui: 'ui1', ackedSeq: -1, flags: 'o', view: 't1', hashes: {} };
@@ -330,16 +363,29 @@ test('a reload (new ui token) resets the slot pointer; stale beacons do not', ()
   b.stop();
 });
 
-test('an addon waiting on a stale signal gets that signal raised too', needsLua, () => {
+test('an addon waiting on a stale signal gets that signal raised too, while it is fewer than four behind', needsLua, () => {
   const { b, dir } = fakeBridge();
-  b.persist.sigCounter = 9;
+  b.persist.sigCounter = 6;
   b.onFrame(frame(1, [['H', 1, 'sess', 'ui1', 2, 4, 0, 'o', '', '0.1.0']]));
-  b.persist.sigCounter = 9; // e.g. restored from a restarted bridge
+  b.persist.sigCounter = 6; // e.g. restored from a restarted bridge
   b.client.slotNext = 2;
   b.publishNow('test');
   assert.ok(rung(dir, 4) > 0, 'bell the addon listens for is rung');
+  assert.ok(rung(dir, 6) > 0);
+  assert.equal(loadSlot(dir, 2).nextSig, 7);
+  b.stop();
+});
+
+test('an addon four or more behind is not rung its old bell, which would ring inside the bells it listens to next', needsLua, () => {
+  const { b, dir } = fakeBridge();
+  b.persist.sigCounter = 9;
+  b.onFrame(frame(1, [['H', 1, 'sess', 'ui1', 2, 4, 0, 'o', '', '0.1.0']]));
+  b.persist.sigCounter = 9;
+  b.client.slotNext = 2;
+  b.publishNow('test');
   assert.ok(rung(dir, 9) > 0);
   assert.equal(loadSlot(dir, 2).nextSig, 10);
+  for (let k = 10; k <= 13; k++) assert.equal(rung(dir, k), 0, `bell ${k} is quiet for the addon that loads this update`);
   b.stop();
 });
 
@@ -353,6 +399,98 @@ test('signals are never skipped, and never rung ahead of our counter', () => {
   for (const k of [6, 7, 8]) assert.equal(rung(dir, k), 0, `bell ${k} not rung ahead`);
   assert.equal(b.persist.sigCounter, 6);
   b.stop();
+});
+
+test('an addon that stays quiet through many updates hears every one, and nothing ahead of it', (t) => {
+  const { b, dir } = fakeBridge();
+  t.after(() => b.stop());
+  b.onFrame(frame(1, [['H', 1, 'sess', 'ui1', 2, 1, 0, '', '', '0.1.0']]));
+  for (let k = 1; k <= 10; k++) {
+    b.publishNow('test');
+    assert.ok(rung(dir, k) > 0, `update ${k} rings bell ${k}`);
+    // Having loaded update k, the addon listens for bells k+1 to k+4.
+    for (let ahead = k + 1; ahead <= k + 4; ahead++) assert.equal(rung(dir, ahead), 0, `bell ${ahead} is quiet after update ${k}`);
+  }
+});
+
+// The game playing bell k keeps its file open, and Windows won't let another program
+// replace a file that is open. Every way the bank changes a bell refuses that one.
+function holdBell(bank, k) {
+  const held = bank.bellFile(k);
+  const change = (file, rung) => {
+    const size = fs.existsSync(file) ? fs.statSync(file).size : 0;
+    if (size === (rung ? LONG_SILENT_WAV.length : 0)) return;
+    if (file === held) throw new FileInUse(file);
+    fs.writeFileSync(file, rung ? LONG_SILENT_WAV : '');
+  };
+  bank.free = (n) => change(bank.bellFile(n - 4), false);
+  bank.raise = (n) => {
+    change(bank.bellFile(n - 4), false);
+    change(bank.bellFile(n), true);
+    return true;
+  };
+  return () => {
+    delete bank.free;
+    delete bank.raise;
+  };
+}
+
+test('an addon stuck on an old bell the game holds open is sent to the next bell, and that bell rings once it is let go', needsLua, (t) => {
+  const { b, dir } = fakeBridge(120);
+  t.after(() => b.stop());
+  b.persist.sigCounter = 7;
+  for (const k of [3, 4, 5, 6]) b.bank.raise(k);
+  // An addon reloaded where the bridge couldn't hear it: at slot 40, still listening
+  // from bell 3, which it plays every half second.
+  b.onFrame(frame(1, [['H', 1, 'sess', 'ui2', 40, 3, 0, '', '', '0.1.0']]));
+  const release = holdBell(b.bank, 3);
+  assert.equal(b.publishNow('test'), false, 'the update is still owed');
+  assert.equal(loadSlot(dir, 40).nextSig, 7, 'the slot it loads next sends it to bell 7, the next to ring');
+  assert.ok(rung(dir, 3) > 0, 'bell 3 is still rung');
+  assert.equal(rung(dir, 7), 0, 'bell 7 is not rung while bell 3, which bell 11 shares, cannot be emptied');
+  assert.equal(b.persist.sigCounter, 7);
+  release();
+  assert.ok(b.publishNow(), 'once the addon has moved on and the game lets go of bell 3');
+  assert.equal(rung(dir, 3), 0);
+  assert.ok(rung(dir, 7) > 0);
+  assert.equal(loadSlot(dir, 40).nextSig, 8);
+});
+
+test('a bell that cannot be rung is not named in the update', needsLua, (t) => {
+  const { b, dir } = fakeBridge();
+  t.after(() => b.stop());
+  b.onFrame(frame(1, [['H', 1, 'sess', 'ui1', 2, 1, 0, '', '', '0.1.0']]));
+  const release = holdBell(b.bank, 1);
+  assert.equal(b.publishNow('test'), false);
+  assert.equal(rung(dir, 1), 0);
+  for (const slot of [1, 2, 3]) assert.equal(loadSlot(dir, slot).nextSig, 1, `slot ${slot} sends the addon to bell 1, which hasn't rung`);
+  release();
+  assert.ok(b.publishNow('test'));
+  assert.ok(rung(dir, 1) > 0);
+  assert.equal(loadSlot(dir, 2).nextSig, 2);
+});
+
+test('an addon that loads an update just before its bell fails to ring listens past that bell, and hears the update after', needsLua, (t) => {
+  const { b, dir } = fakeBridge();
+  t.after(() => b.stop());
+  b.onFrame(frame(1, [['H', 1, 'sess', 'ui1', 2, 1, 0, '', '', '0.1.0']]));
+  const write = b.bank.write.bind(b.bank);
+  let read = null;
+  b.bank.write = (slots, snapshot) => {
+    const bytes = write(slots, snapshot);
+    if (read === null && slots.includes(2)) read = loadSlot(dir, 2).nextSig;
+    return bytes;
+  };
+  const release = holdBell(b.bank, 1);
+  assert.equal(b.publishNow('test'), false);
+  assert.equal(read, 2, 'the update it loaded, written before the ring, names bell 2');
+  for (const slot of [1, 2, 3]) assert.equal(loadSlot(dir, slot).nextSig, 1, `once the ring failed, slot ${slot} names bell 1 again`);
+  release();
+  b.bank.write = write;
+  assert.ok(b.publishNow('test'));
+  assert.ok(rung(dir, 1) > 0 && rung(dir, 2) === 0, 'the update goes out again with bell 1, which that addon no longer listens to');
+  assert.ok(b.publishNow('test'));
+  assert.ok(rung(dir, 2) > 0, 'the next update rings bell 2, the first it hears');
 });
 
 test('a drifted slot prediction still covers the slot the addon will load', needsLua, () => {
@@ -679,6 +817,121 @@ test('read-aloud waits while the player is in combat', () => {
   b.stop();
 });
 
+test('the snapshot says whether the desktop voice is reading, and the last speech command the bridge acted on', async (t) => {
+  const { b } = fakeBridge();
+  delete b.voice.speak;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 't3wow-voice-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'slow.cjs'), "process.stdin.resume().on('end', () => setTimeout(() => {}, 300));");
+  b.voice.ttsCommand = `"${process.execPath}" "${path.join(dir, 'slow.cjs')}"`;
+  const hello = ['H', 1, 'sess', 'ui1', 1, 1, 0, 'o', '', '0.1.0'];
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(b.buildSnapshot().speech, { on: undefined, cmd: undefined }, 'sent before the addon is heard, so it knows this bridge says when its voice reads');
+  b.onFrame(frame(1, [hello]));
+  assert.deepEqual(b.buildSnapshot().speech, { on: undefined, cmd: undefined }, 'nothing said yet');
+  b.onFrame(frame(2, [hello, ['C', 1, 'say', 'Hello there']]));
+  await settle();
+  assert.deepEqual(b.buildSnapshot().speech, { on: true, cmd: 1 });
+  b.onFrame(frame(3, [hello, ['C', 2, 'hush']]));
+  await settle();
+  assert.deepEqual(b.buildSnapshot().speech, { on: undefined, cmd: 2 });
+  b.onFrame(frame(4, [hello, ['C', 3, 'say', 'Again']]));
+  await settle();
+  assert.ok(b.publishNow(), 'the addon hears the reading start');
+  b.dirty = { important: false, minor: false, view: false };
+  await new Promise((resolve) => b.voice.current.child.once('exit', resolve));
+  assert.deepEqual(b.buildSnapshot().speech, { on: undefined, cmd: 3 }, 'done when the voice finishes');
+  assert.ok(b.dirty.important, 'with the window open, the end goes out like a status change');
+  b.onFrame(frame(5, [hello, ['C', 4, 'speak', 't1', 'last']]));
+  await settle();
+  assert.deepEqual(b.buildSnapshot().speech, { on: undefined, cmd: 4 }, 'a reading refused for having nothing to read is acted on too');
+  b.stop();
+});
+
+test("a bridge restarted during a reading says the addon's speech commands before it are over, so its speaker goes back", (t) => {
+  const { b } = fakeBridge();
+  t.after(() => b.stop());
+  b.persist.handled = { sess: 7 };
+  b.onFrame(frame(1, [['H', 1, 'sess', 'ui1', 1, 1, 0, 'o', '', '0.1.0']]));
+  assert.deepEqual(b.buildSnapshot().speech, { on: undefined, cmd: 7 });
+});
+
+test("a stop or another read while a reply's text is still being fetched means that reply is never read", async (t) => {
+  const { b } = fakeBridge();
+  t.after(() => b.stop());
+  const spoken = [];
+  const lookups = [];
+  b.voice.speak = (text) => (spoken.push(text), true);
+  b.voice.hush = () => spoken.push('(hush)');
+  b.speechFor = (thread, which) => new Promise((resolve) => lookups.push(() => resolve(`${thread} ${which}`)));
+  const hello = ['H', 1, 'sess', 'ui1', 1, 1, 0, 'o', '', '0.1.0'];
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  b.onFrame(frame(1, [hello, ['C', 1, 'speak', 't1', 'last'], ['C', 2, 'hush']]));
+  await settle();
+  lookups[0]();
+  await settle();
+  assert.deepEqual(spoken, ['(hush)'], 'the stop came after the read, so nothing is read');
+  assert.equal(b.buildSnapshot().speech.cmd, 2);
+  b.onFrame(frame(2, [hello, ['C', 3, 'speak', 't1', '1'], ['C', 4, 'speak', 't1', '2']]));
+  await settle();
+  lookups[2]();
+  lookups[1]();
+  await settle();
+  assert.deepEqual(spoken, ['(hush)', 't1 2'], 'only the later of two reads');
+  assert.equal(b.buildSnapshot().speech.cmd, 4);
+});
+
+test('with the window closed, the end of a reading waits for the next update instead of sending one', (t) => {
+  const { b } = fakeBridge();
+  t.after(() => b.stop());
+  b.onFrame(frame(1, [['H', 1, 'sess', 'ui1', 1, 1, 0, '', '', '0.1.0']]));
+  assert.ok(b.publishNow());
+  clearTimeout(b.publishTimer);
+  b.publishTimer = null;
+  b.voice.onSpeaking(false);
+  assert.deepEqual(b.dirty, { important: false, minor: false, view: false });
+  assert.equal(b.publishTimer, null, 'no update is due for it');
+});
+
+test("with the window open, a reading's start sends nothing of its own, nor does the end of one the addon never heard start", (t) => {
+  const { b } = fakeBridge();
+  t.after(() => b.stop());
+  b.onFrame(frame(1, [['H', 1, 'sess', 'ui1', 1, 1, 0, 'o', '', '0.1.0']]));
+  assert.ok(b.publishNow());
+  clearTimeout(b.publishTimer);
+  b.publishTimer = null;
+  b.voice.onSpeaking(true);
+  b.voice.onSpeaking(false);
+  assert.deepEqual(b.dirty, { important: false, minor: false, view: false });
+  assert.equal(b.publishTimer, null, 'an announcement read and done between updates costs none');
+});
+
+test('opening the window sends an update when a reading ended while it was closed, and only then', (t) => {
+  const { b } = fakeBridge();
+  t.after(() => b.stop());
+  let speaking = true;
+  Object.defineProperty(b.voice, 'speaking', { get: () => speaking });
+  const hello = (flags) => ['H', 1, 'sess', 'ui1', 1, 1, 0, flags, '', '0.1.0'];
+  const clean = () => {
+    clearTimeout(b.publishTimer);
+    b.publishTimer = null;
+    b.dirty = { important: false, minor: false, view: false };
+  };
+  b.onFrame(frame(1, [hello('')]));
+  assert.ok(b.publishNow(), 'the addon hears the reading start');
+  clean();
+  speaking = false;
+  b.voice.onSpeaking(false);
+  b.onFrame(frame(2, [hello('o')]));
+  assert.ok(b.dirty.important, 'the speaker would still be red');
+  assert.ok(b.publishNow());
+  clean();
+  b.onFrame(frame(3, [hello('')]));
+  clean();
+  b.onFrame(frame(4, [hello('o')]));
+  assert.deepEqual(b.dirty, { important: false, minor: true, view: false }, 'the addon already knows it ended');
+});
+
 test('missing dictation explains itself in platform terms', () => {
   const { b } = fakeBridge();
   b.voice.canOmarchyDictate = () => false;
@@ -725,6 +978,33 @@ test('pacing: fast while reading, patient otherwise, reserve kept for alerts', (
   b.client.seq = 99; // an unacknowledged command
   assert.ok(b.nextPublishDelay() <= 400, 'acks always go right away');
   b.stop();
+});
+
+test('until it hears the addon, the bridge updates it as with the window closed, and says it does not know how many updates are left', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const { b } = fakeBridge(600);
+  t.after(() => b.stop());
+  const status = () => {
+    b.writeStatus();
+    return JSON.parse(fs.readFileSync(b.statusFile, 'utf8'));
+  };
+  b.dirty.important = true;
+  assert.ok(b.nextPublishDelay() <= 300, 'the first goes out at once, for an addon still in step with the last bridge');
+  assert.ok(b.publishNow());
+  assert.equal(status().slots.remaining, null);
+  t.mock.timers.tick(1000);
+  b.dirty.important = true;
+  assert.ok(b.nextPublishDelay() <= 2000, `a thread finishing goes within a few seconds: ${b.nextPublishDelay()} ms`);
+  b.dirty = { important: false, minor: true, view: false };
+  assert.ok(b.nextPublishDelay() >= 55000, `an activity label waits about a minute: ${b.nextPublishDelay()} ms`);
+  b.dirty = { important: false, minor: false, view: false };
+  assert.equal(b.nextPublishDelay(), null, 'nothing changed, nothing sent');
+  b.onFrame(frame(1, [['H', 1, 'sess', 'ui1', 3, 2, 0, '', '', '0.1.0', '600']]));
+  assert.equal(status().slots.remaining, 598);
+  b.dirty.important = true;
+  b.client.ackedSeq = b.client.seq;
+  t.mock.timers.tick(1000);
+  assert.ok(b.nextPublishDelay() <= 3000, 'once heard, the usual pace');
 });
 
 test('a locked file backs the publish off instead of retrying in a loop', () => {
@@ -886,6 +1166,29 @@ test('a thread whose child threads still run is waiting on them, as in T3 Code',
   assert.deepEqual([row().s, row().l, row().st], ['waiting', 'Waiting on 1 subagent', Date.parse('2026-01-01T00:05:00Z') / 1000]);
   b.t3.threads.set('kid', { ...kid, status: 'completed', activityRunStatus: null });
   assert.equal(row().s, 'open', 'done once its children are');
+  b.t3.threads.set('fork', { ...kid, id: 'fork', lineage: { parentThreadId: 'lead', relationshipToParent: 'fork' } });
+  assert.equal(row().s, 'open', 'a running fork is a thread of its own and holds nobody');
+});
+
+test('a message to a thread whose run goes on is queued, even while that run waits', async () => {
+  const { T3Client } = await import('../src/t3.js');
+  const c = new T3Client({ tokenProvider: async () => 'x' });
+  const modes = [];
+  c.dispatch = async (command) => modes.push(command.dispatchMode);
+  const run = { status: 'running', activityRunStatus: 'running', activeRunId: 'r1' };
+  c.threads.set('ended', { id: 'ended', status: 'completed', activityRunStatus: null, activeRunId: null, pendingBackgroundTasks: [{ taskId: 'a', kind: 'subagent' }] });
+  c.threads.set('running', { id: 'running', ...run });
+  c.threads.set('blocked', { id: 'blocked', ...run, blockedOnThreadWait: true });
+  c.threads.set('awaiting', { id: 'awaiting', ...run, pendingBackgroundTasks: [{ taskId: 'b', kind: 'subagent' }] });
+  for (const id of ['ended', 'running', 'blocked', 'awaiting']) await c.sendMessage(id, 'hi');
+  await c.sendMessage('blocked', 'hi', 'steer');
+  assert.deepEqual(modes, [
+    { type: 'start_immediately' },
+    { type: 'queue_after_active' },
+    { type: 'queue_after_active' },
+    { type: 'queue_after_active' },
+    { type: 'steer_active', targetRunId: 'r1' },
+  ]);
 });
 
 test('ending a turn into waiting is not announced; the wait ending is', async () => {
@@ -902,6 +1205,13 @@ test('ending a turn into waiting is not announced; the wait ending is', async ()
   assert.deepEqual(said, ['open']);
   b.onT3Change({ kind: 'thread', prev: running, thread: { ...running, id: 'kid', lineage: { parentThreadId: 'w' }, status: 'completed', activityRunStatus: null } });
   assert.deepEqual(said, ['open'], 'subagent threads are never announced');
+  b.t3.threads.set('e2~p', { id: 'e2~p', title: 'Parent', projectId: 'p1', status: 'running', activityRunStatus: 'running', updatedAt: base.updatedAt });
+  const remote = { ...running, id: 'remote', delegatedFrom: { environmentId: 'e2', threadId: 'p', title: 'Parent' }, _from: { key: 'e2~p', kind: 'sent' } };
+  b.onT3Change({ kind: 'thread', prev: remote, thread: { ...remote, status: 'completed', activityRunStatus: null } });
+  assert.deepEqual(said, ['open'], 'nor are tasks another machine delegated here');
+  const stray = { ...remote, id: 'stray', _from: { key: null, kind: 'sent' } };
+  b.onT3Change({ kind: 'thread', prev: stray, thread: { ...stray, status: 'completed', activityRunStatus: null } });
+  assert.deepEqual(said, ['open', 'open'], 'unless the bridge doesn\'t know the thread that sent it');
 });
 
 test('running subagent threads are listed, idle ones are not', async () => {
@@ -919,6 +1229,72 @@ test('running subagent threads are listed, idle ones are not', async () => {
   const ids = b.buildSnapshot().threads.map((t) => t.id);
   assert.ok(ids.includes('busy-kid'), 'a running subagent thread is listed');
   assert.ok(!ids.includes('idle-kid'), 'an idle one is not');
+});
+
+test('a forked thread is a thread of its own; a subagent or side chat is not', async () => {
+  const { b } = fakeBridge();
+  const now = new Date().toISOString();
+  const idle = (id, lineage) => ({ id, title: id, projectId: 'p1', status: 'completed', updatedAt: now, lineage: { parentThreadId: 't1', rootThreadId: 't1', ...lineage } });
+  b.t3.threads.set('fork', idle('fork', { relationshipToParent: 'fork' }));
+  b.t3.threads.set('side-chat', idle('side-chat', { relationshipToParent: 'fork', sideChat: true }));
+  b.t3.threads.set('kid', idle('kid', { relationshipToParent: 'subagent' }));
+  const ids = b.buildSnapshot().threads.map((t) => t.id);
+  assert.ok(ids.includes('fork'), 'an idle fork stays listed');
+  assert.ok(!ids.includes('side-chat'), 'an idle side chat does not');
+  assert.ok(!ids.includes('kid'), 'nor an idle subagent thread');
+
+  const said = [];
+  b.announce = (t) => said.push(t.id);
+  for (const id of ['fork', 'side-chat', 'kid']) {
+    const done = b.t3.threads.get(id);
+    b.onT3Change({ kind: 'thread', prev: { ...done, status: 'running', activityRunStatus: 'running' }, thread: done });
+  }
+  assert.deepEqual(said, ['fork'], 'only the fork finishing is announced');
+
+  const { Fleet } = await import('../src/fleet.js');
+  const fleet = new Fleet({ localTokens: async () => 'x' });
+  for (const [id, t] of b.t3.threads) if (['fork', 'side-chat', 'kid'].includes(id)) fleet.local.client.threads.set(id, t);
+  assert.equal(fleet.environments()[0].threads, 1, 'and only the fork is counted');
+  b.writeStatus();
+  const counted = JSON.parse(fs.readFileSync(b.statusFile, 'utf8')).t3.threads;
+  for (const id of ['side-chat', 'kid']) b.t3.threads.delete(id);
+  b.writeStatus();
+  assert.equal(JSON.parse(fs.readFileSync(b.statusFile, 'utf8')).t3.threads, counted, 'in the status file too');
+  b.t3.threads.delete('fork');
+  b.writeStatus();
+  assert.equal(JSON.parse(fs.readFileSync(b.statusFile, 'utf8')).t3.threads, counted - 1);
+});
+
+test('a task another machine delegated here is listed and counted like a subagent thread', async () => {
+  const { b } = fakeBridge();
+  const now = new Date().toISOString();
+  const delegatedFrom = { environmentId: 'e2', threadId: 'p', title: 'Parent' };
+  const _from = { key: 'e2~p', kind: 'sent' };
+  const busy = { id: 'busy-task', title: 'Busy', projectId: 'p1', status: 'running', activityRunStatus: 'running', delegatedFrom, _from, updatedAt: now };
+  const idle = { id: 'idle-task', title: 'Idle', projectId: 'p1', status: 'completed', delegatedFrom, _from, updatedAt: now };
+  // As in T3 Code, one from a machine the bridge doesn't know has nothing to sit under.
+  const stray = { ...idle, id: 'stray-task', _from: { key: null, kind: 'sent' } };
+  // A thread an agent launched for the player stores delegatedFrom: null and is its own thread.
+  const handoff = { id: 'handoff', title: 'Handoff', projectId: 'p1', status: 'completed', delegatedFrom: null, updatedAt: now };
+  const statusCount = () => (b.writeStatus(), JSON.parse(fs.readFileSync(b.statusFile, 'utf8')).t3.threads);
+  const sender = { id: 'e2~p', title: 'Parent', projectId: 'p1', status: 'completed', updatedAt: now };
+  b.t3.threads.set(sender.id, sender);
+  const before = statusCount();
+  for (const t of [busy, idle, handoff, stray]) b.t3.threads.set(t.id, t);
+  assert.equal(statusCount(), before + 1, 'the status file counts only the handoff');
+  let ids = b.buildSnapshot().threads.map((t) => t.id);
+  assert.ok(ids.includes('busy-task'), 'a running delegated task is listed');
+  assert.ok(!ids.includes('idle-task'), 'an idle one is not');
+  assert.ok(ids.includes('handoff'), 'a handoff thread is listed whatever its state');
+  assert.ok(ids.includes('stray-task'), 'an idle task from an unknown sender is listed');
+  b.t3.threads.set(sender.id, { ...sender, archivedAt: now });
+  ids = b.buildSnapshot().threads.map((t) => t.id);
+  assert.ok(ids.includes('idle-task'), 'and so is one whose sender was archived');
+
+  const { Fleet } = await import('../src/fleet.js');
+  const fleet = new Fleet({ localTokens: async () => 'x' });
+  for (const t of [busy, idle, handoff]) fleet.local.client.threads.set(t.id, t);
+  assert.equal(fleet.environments()[0].threads, 1, 'only the handoff counts as a thread of this machine');
 });
 
 const at = (min) => new Date(Date.UTC(2026, 10, 1, 0, min)).toISOString();

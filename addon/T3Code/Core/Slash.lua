@@ -62,9 +62,9 @@ function ns.SelfTest()
 	-- The game font has no check/cross characters; use the game's own icons.
 	local ok, bad = CreateAtlasMarkup("common-icon-checkmark", 14, 14), CreateAtlasMarkup("common-icon-redx", 14, 14)
 	local function line(pass, text, fix)
-		ns.Print((pass and ok or bad) .. " " .. text .. ((not pass and fix) and ns.Color("grey", " — " .. fix) or ""))
+		ns.Print((pass and ok or bad) .. " " .. text .. ((not pass and fix) and ns.ChatColor("grey", " — " .. fix) or ""))
 	end
-	ns.Print(ns.Color("gold", "Self-test"))
+	ns.Print("|c" .. ns.COLORS.gold .. "Self-test|r")
 	line(T.slotCount > 0, string.format("live-update files: %d found", T.slotCount), "run t3code-wow install, then fully restart the game")
 	T:SelfTest(function(result)
 		line(result == "ok", "update bells: " .. result .. (result == "ok" and (" (" .. tostring(T.channel) .. " channel)") or ""),
@@ -153,9 +153,9 @@ SlashCmdList.T3CODE = function(msg)
 		else
 			for i = math.max(1, #list - 4), #list do
 				local e = list[i]
-				ns.Print(ns.Color("grey", date("%H:%M:%S", e.t)) .. " " .. ns.Color("red", e.msg))
+				ns.Print(ns.ChatColor("grey", date("%H:%M:%S", e.t)) .. " " .. ns.ChatColor("red", e.msg))
 			end
-			ns.Print(ns.Color("grey", "(/t3 errors clear to reset. They're also saved with the addon's data on /reload.)"))
+			ns.Print(ns.ChatColor("grey", "(/t3 errors clear to reset. They're also saved with the addon's data on /reload.)"))
 		end
 	else
 		ns.Print("/t3 — open the window")

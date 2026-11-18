@@ -1,7 +1,10 @@
--- A "T3 Code" section styled like the objective tracker: what's running, what needs
--- you, and what just finished. Click a line to open that thread.
+-- A "T3 Code" section beside the objective tracker: what's running, what needs
+-- you, and what just finished. Click a line to open that thread. Classic keeps
+-- the tracker's own header. Modern is a card on the window's ground, in the
+-- theme's colors: a blue bar while a thread works, orange when it needs you.
 
 local _, ns = ...
+local Theme = ns.Theme
 
 local K = {}
 ns.Tracker = K
@@ -57,6 +60,33 @@ local function Font(name, fallback)
 	return _G[name] and name or fallback
 end
 
+local function TitleFont() return Font("ObjectiveTrackerHeaderFont", "GameFontNormalMed2") end
+local function LineFont() return Font("ObjectiveTrackerLineFont", "GameFontHighlightSmall") end
+
+-- The modern card's second row: plain words, no objective-tracker dash or color codes.
+local function Plain(t)
+	if t.s == "working" then
+		return string.format("%s · %s", t.l or "Working", ns.Duration(time() - (t.st or time()))), "working"
+	elseif t.s == "waiting" then
+		return string.format("%s · %s", t.l or "Waiting", ns.Duration(time() - (t.st or time()))), "waiting"
+	elseif t.s == "input" or t.s == "plan" then
+		return t.l or "Needs you", "needs"
+	elseif t.s == "failed" then
+		return "Failed", "failed"
+	end
+	return "Finished · " .. ns.Ago(t.u), "done"
+end
+
+-- The bar down a line's left edge, by kind, in the theme's colors: blue while it
+-- works, orange when it needs you, red when it failed.
+local MARK = { working = "blue", needs = "orange", failed = "red" }
+
+-- The kit's flat font, colored from the theme.
+local function Flat(fs, font)
+	fs:SetFontObject(font)
+	fs:SetShadowOffset(0, 0)
+end
+
 -- A line's second row, and the colour of its dot.
 local function SubText(t)
 	if t.s == "working" then
@@ -79,30 +109,47 @@ local function CreateLine(parent)
 	b.Dot:SetMask("Interface\\CharacterFrame\\TempPortraitAlphaMask")
 	b.Dot:SetSize(8, 8)
 	b.Dot:SetPoint("TOPLEFT", 4, -5)
-	b.Title = b:CreateFontString(nil, "ARTWORK", Font("ObjectiveTrackerHeaderFont", "GameFontNormalMed2"))
+	b.Title = b:CreateFontString(nil, "ARTWORK", TitleFont())
 	b.Title:SetPoint("TOPLEFT", 18, 0)
 	b.Title:SetPoint("RIGHT", -4, 0)
 	b.Title:SetJustifyH("LEFT")
 	b.Title:SetWordWrap(false)
-	b.Sub = b:CreateFontString(nil, "ARTWORK", Font("ObjectiveTrackerLineFont", "GameFontHighlightSmall"))
+	b.Sub = b:CreateFontString(nil, "ARTWORK", LineFont())
 	b.Sub:SetPoint("TOPLEFT", b.Title, "BOTTOMLEFT", 0, -2)
 	b.Sub:SetPoint("RIGHT", -4, 0)
 	b.Sub:SetJustifyH("LEFT")
 	b.Sub:SetWordWrap(false)
+	b.Bar = b:CreateTexture(nil, "ARTWORK")
+	b.Bar:Hide()
+	b.Hover = b:CreateTexture(nil, "BACKGROUND")
+	b.Hover:SetAllPoints()
+	b.Hover:Hide()
 	b:SetHeight(36)
 	b:SetScript("OnEnter", function(self)
-		self.Title:SetTextColor(1, 1, 1)
+		local theme = Theme.Get()
+		if theme then
+			Theme.Paint(self.Hover, theme.hover)
+			self.Hover:Show()
+		else
+			self.Title:SetTextColor(1, 1, 1)
+		end
 		local t = self.thread
 		if not t then return end
 		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-		GameTooltip:SetText(t.title, 1, 0.82, 0, 1, true)
+		local tr, tg, tb = 1, 0.82, 0
+		if theme then tr, tg, tb = theme.text[1], theme.text[2], theme.text[3] end
+		GameTooltip:SetText(t.title, tr, tg, tb, 1, true)
 		GameTooltip:AddLine(ns.Store:ProjectName(t.p), 0.7, 0.7, 0.7)
 		if t.last then GameTooltip:AddLine(t.last, 1, 1, 1, true) end
 		GameTooltip:AddLine("Click to open", 0.5, 0.5, 0.5)
 		GameTooltip:Show()
 	end)
 	b:SetScript("OnLeave", function(self)
-		self.Title:SetTextColor(OBJECTIVE_TRACKER_COLOR and OBJECTIVE_TRACKER_COLOR.Header.r or 1, OBJECTIVE_TRACKER_COLOR and OBJECTIVE_TRACKER_COLOR.Header.g or 0.82, OBJECTIVE_TRACKER_COLOR and OBJECTIVE_TRACKER_COLOR.Header.b or 0)
+		if Theme.Get() then
+			self.Hover:Hide()
+		else
+			self.Title:SetTextColor(OBJECTIVE_TRACKER_COLOR and OBJECTIVE_TRACKER_COLOR.Header.r or 1, OBJECTIVE_TRACKER_COLOR and OBJECTIVE_TRACKER_COLOR.Header.g or 0.82, OBJECTIVE_TRACKER_COLOR and OBJECTIVE_TRACKER_COLOR.Header.b or 0)
+		end
 		GameTooltip:Hide()
 	end)
 	b:SetScript("OnClick", function(self, mouse)
@@ -176,6 +223,130 @@ function K:Create()
 	DefaultPoint(f)
 end
 
+local BAND = 22
+
+-- The modern card, on the window's ground. Built the first time the modern design is on, then shown or
+-- hidden with the design so the classic header stays the one the tracker knows.
+function K:EnsureModern()
+	local f = self.frame
+	if f.Modern then return end
+	local theme = Theme.MODERN
+	local bg = Theme.Solid(f, theme.windowBg)
+	bg:SetAllPoints()
+	local top, bottom, left, right = Theme.Edges(f, theme.hairline)
+	local band = CreateFrame("Frame", nil, f)
+	band:SetPoint("TOPLEFT")
+	band:SetPoint("TOPRIGHT")
+	band:SetHeight(BAND)
+	band:SetFrameLevel((f:GetFrameLevel() or 1) + 5)
+	band:EnableMouse(true)
+	band:RegisterForDrag("LeftButton")
+	band:SetScript("OnDragStart", function()
+		if not ns.db.settings.trackerLocked then f:StartMoving() end
+	end)
+	band:SetScript("OnDragStop", function()
+		f:StopMovingOrSizing()
+		f:SetUserPlaced(false)
+		local point, _, rel, x, y = f:GetPoint()
+		ns.db.settings.trackerPoint = { point, rel, x, y }
+	end)
+	band:SetScript("OnMouseUp", function(_, button)
+		if button == "LeftButton" and ns.db.settings.trackerLocked then ns.Main:Toggle() end
+	end)
+	local label = band:CreateFontString(nil, "ARTWORK", "T3ModernBodyBold")
+	label:SetPoint("LEFT", 10, 0)
+	label:SetText("T3 Code")
+	local chevron = CreateFrame("Button", nil, band)
+	chevron:SetSize(16, 16)
+	chevron:SetPoint("RIGHT", -4, 0)
+	local icon = chevron:CreateTexture(nil, "ARTWORK")
+	icon:SetAllPoints()
+	icon:SetTexture(ns.UI.LineIcon("chevron-down"))
+	chevron:SetScript("OnClick", function() f:ToggleCollapsed() end)
+	label:SetPoint("RIGHT", chevron, "LEFT", -4, 0)
+	label:SetJustifyH("LEFT")
+	local rule = Theme.Solid(band, theme.hairline, "ARTWORK")
+	rule:SetHeight(1)
+	rule:SetPoint("BOTTOMLEFT", 1, 0)
+	rule:SetPoint("BOTTOMRIGHT", -1, 0)
+	f.Modern = { Bg = bg, Edges = { top, bottom, left, right }, Band = band, Chevron = icon, Rule = rule, Label = label }
+end
+
+-- The card is built once; the theme can change after, so paint it on each refresh.
+local function PaintModern(f, theme)
+	local m = f.Modern
+	Theme.Paint(m.Bg, theme.windowBg)
+	for _, edge in ipairs(m.Edges) do Theme.Paint(edge, theme.hairline) end
+	Theme.Paint(m.Rule, theme.hairline)
+	Theme.SetText(m.Label, theme.text)
+	m.Chevron:SetVertexColor(theme.muted[1], theme.muted[2], theme.muted[3], 1)
+end
+
+local function ShowModern(f, on)
+	local m = f.Modern
+	if not m then return end
+	m.Bg:SetShown(on)
+	for _, edge in ipairs(m.Edges) do edge:SetShown(on) end
+	m.Band:SetShown(on)
+end
+
+-- Back to the tracker's own fonts: the modern card set its own size, no shadow,
+-- and its own colors.
+local function Unflat(fs, name)
+	fs:SetFontObject(name)
+	fs:SetShadowOffset(1, -1)
+	local obj = _G[name]
+	if obj and obj.GetTextColor then fs:SetTextColor(obj:GetTextColor()) end
+end
+
+local function StyleClassic(b)
+	if b.flat then
+		b.flat = nil
+		Unflat(b.Title, TitleFont())
+		Unflat(b.Sub, LineFont())
+	end
+	b.Bar:Hide()
+	b.Hover:Hide()
+	b.Dot:Show()
+	b.Dot:ClearAllPoints()
+	b.Dot:SetPoint("TOPLEFT", 4, -5)
+	b.Title:ClearAllPoints()
+	b.Title:SetPoint("TOPLEFT", 18, 0)
+	b.Title:SetPoint("RIGHT", -4, 0)
+	b.Sub:ClearAllPoints()
+	b.Sub:SetPoint("TOPLEFT", b.Title, "BOTTOMLEFT", 0, -2)
+	b.Sub:SetPoint("RIGHT", -4, 0)
+end
+
+local function StyleModern(b, theme)
+	b.Dot:Hide()
+	b.Hover:Hide()
+	b.Title:ClearAllPoints()
+	b.Title:SetPoint("TOPLEFT", 12, -3)
+	b.Title:SetPoint("RIGHT", -10, 0)
+	b.Sub:ClearAllPoints()
+	b.Sub:SetPoint("TOPLEFT", b.Title, "BOTTOMLEFT", 0, -1)
+	b.Sub:SetPoint("RIGHT", -10, 0)
+	Flat(b.Title, "T3ModernBody")
+	Flat(b.Sub, "T3ModernSmallDim")
+	b.flat = true
+	Theme.SetText(b.Title, theme.text)
+	Theme.SetText(b.Sub, theme.muted)
+end
+
+local function Mark(b, token)
+	if not token then
+		b.Bar:Hide()
+		return
+	end
+	b.Bar:Show()
+	b.Bar:ClearAllPoints()
+	b.Bar:SetWidth(2)
+	b.Bar:SetPoint("TOPLEFT", 0, 0)
+	b.Bar:SetPoint("BOTTOMLEFT", 0, 0)
+	Theme.Paint(b.Bar, token)
+end
+
 function K:Refresh(resetPosition)
 	if not self.frame then return end
 	local f = self.frame
@@ -206,8 +377,23 @@ function K:Refresh(resetPosition)
 		return
 	end
 	f:Show()
+	local theme = Theme.Get()
+	if theme then
+		self:EnsureModern()
+		PaintModern(f, theme)
+		f.Header:Hide()
+		ShowModern(f, true)
+		local collapsed = s.trackerCollapsed and true or false
+		f.Modern.Chevron:SetTexture(ns.UI.LineIcon(collapsed and "chevron-right" or "chevron-down"))
+		f.Modern.Chevron:SetVertexColor(theme.muted[1], theme.muted[2], theme.muted[3], 1)
+		f.Modern.Rule:SetShown(not collapsed)
+	else
+		ShowModern(f, false)
+		f.Header:Show()
+	end
 	f.Header:SetCollapsed(s.trackerCollapsed and true or false)
-	local y = -30
+	local y = theme and -BAND or -30
+	local step = theme and 34 or 38
 	local shown = 0
 	if not s.trackerCollapsed then
 		local function Line(i)
@@ -217,10 +403,11 @@ function K:Refresh(resetPosition)
 				f.Lines[i] = b
 			end
 			b:ClearAllPoints()
-			b:SetPoint("TOPLEFT", 0, y)
-			b:SetPoint("RIGHT", f, "RIGHT", 0, 0)
+			b:SetPoint("TOPLEFT", theme and 1 or 0, y)
+			b:SetPoint("RIGHT", f, "RIGHT", theme and -1 or 0, 0)
+			b:SetHeight(theme and 34 or 36)
 			b:Show()
-			y = y - 38
+			y = y - step
 			return b
 		end
 		for i, t in ipairs(entries) do
@@ -229,23 +416,45 @@ function K:Refresh(resetPosition)
 			local b = Line(shown)
 			b.thread, b.action = t, nil
 			b.Title:SetText(t.title)
-			local hc = OBJECTIVE_TRACKER_COLOR and OBJECTIVE_TRACKER_COLOR.Header
-			if hc then b.Title:SetTextColor(hc.r, hc.g, hc.b) else b.Title:SetTextColor(1, 0.82, 0) end
-			local sub, r, g, bl = SubText(t)
-			b.Sub:SetText(sub)
-			b.Dot:SetVertexColor(r, g, bl)
+			if theme then
+				local plain, kind = Plain(t)
+				b.Sub:SetText(plain)
+				StyleModern(b, theme)
+				if kind == "needs" then Theme.SetText(b.Title, theme.orange) end
+				Mark(b, MARK[kind] and theme[MARK[kind]])
+			else
+				StyleClassic(b)
+				local hc = OBJECTIVE_TRACKER_COLOR and OBJECTIVE_TRACKER_COLOR.Header
+				if hc then b.Title:SetTextColor(hc.r, hc.g, hc.b) else b.Title:SetTextColor(1, 0.82, 0) end
+				local sub, r, g, bl = SubText(t)
+				b.Sub:SetText(sub)
+				b.Dot:SetVertexColor(r, g, bl)
+			end
 		end
 		if notice then
 			shown = shown + 1
 			local b = Line(shown)
 			b.thread, b.action = nil, notice.action
-			b.Title:SetText(ns.Color("orange", notice.text))
-			b.Sub:SetText("- " .. notice.sub)
-			b.Dot:SetVertexColor(1, 0.6, 0.2)
+			if theme then
+				b.Title:SetText(notice.text)
+				b.Sub:SetText(notice.sub)
+				StyleModern(b, theme)
+				Theme.SetText(b.Title, theme.orange)
+				Mark(b, theme.orange)
+			else
+				StyleClassic(b)
+				b.Title:SetText(ns.Color("orange", notice.text))
+				b.Sub:SetText("- " .. notice.sub)
+				b.Dot:SetVertexColor(1, 0.6, 0.2)
+			end
 		end
 	end
 	for i = shown + 1, #f.Lines do f.Lines[i]:Hide() end
-	f:SetHeight(-y + 4)
+	if shown == 0 then
+		f:SetHeight(theme and BAND or 34)
+	else
+		f:SetHeight(-y + (theme and 8 or 4))
+	end
 end
 
 ns:On("Login", function()
@@ -283,7 +492,7 @@ function K:RefreshTimers()
 	end
 	for _, b in ipairs(f.Lines) do
 		if b:IsShown() and b.thread then
-			local sub = SubText(b.thread)
+			local sub = Theme.Get() and Plain(b.thread) or SubText(b.thread)
 			if sub ~= b.Sub:GetText() then b.Sub:SetText(sub) end
 		end
 	end
