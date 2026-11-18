@@ -105,11 +105,11 @@ function F:Create(right, header)
 		if not up.Icon:GetAtlas() then up.Icon:SetAtlas("common-dropdown-icon-back") end
 	end
 	up.Icon:SetRotation(-math.pi / 2)
-	up.Text = up:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	up.Text = up:CreateFontString(nil, "ARTWORK", UI.Font("GameFontHighlightSmall"))
 	up.Text:SetPoint("LEFT", up.Icon, "RIGHT", 6, 0)
 	up.Text:SetJustifyH("LEFT")
 	up.Text:SetWordWrap(false)
-	up.Status = up:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	up.Status = up:CreateFontString(nil, "ARTWORK", UI.Font("GameFontHighlightSmall"))
 	up.Status:SetPoint("LEFT", up.Text, "RIGHT", 8, 0)
 	up:SetScript("OnClick", function(self)
 		if not self.target then return end

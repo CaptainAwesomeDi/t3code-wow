@@ -15,6 +15,9 @@ local GROUPS = {
 	{ key = "settled", label = "Settled" },
 }
 
+-- The modern window's dots in the theme's own colors, by token.
+local DOT_TOKENS = { working = "blue", waiting = "muted", input = "orange", plan = "orange", failed = "red", unread = "blue" }
+
 local DOT_COLORS = {
 	working = { 0.29, 0.62, 1 },
 	waiting = { 0.55, 0.6, 0.7 },
@@ -98,28 +101,28 @@ local function CreateRow(button)
 	dot:SetMask("Interface\\CharacterFrame\\TempPortraitAlphaMask")
 	button.Dot = dot
 
-	-- GameFontNormal is the game's gold. On the dark ground a thread title is white,
-	-- and the accent is reserved for the selected row's bar.
-	local title = button:CreateFontString(nil, "ARTWORK", theme and "GameFontHighlight" or "GameFontNormal")
+	-- GameFontNormal is the game's gold. In the modern window a thread title is the
+	-- foreground, and the accent is reserved for the selected row.
+	local title = button:CreateFontString(nil, "ARTWORK", theme and "T3ModernBody" or "GameFontNormal")
 	title:SetPoint("TOPLEFT", 18, -7)
 	title:SetPoint("RIGHT", -74, 0)
 	title:SetJustifyH("LEFT")
 	title:SetWordWrap(false)
 	button.Title = title
 
-	local status = button:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	local status = button:CreateFontString(nil, "ARTWORK", ns.UI.Font("GameFontHighlightSmall"))
 	status:SetPoint("TOPRIGHT", -6, -8)
 	status:SetJustifyH("RIGHT")
 	button.Status = status
 
-	local sub = button:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	local sub = button:CreateFontString(nil, "ARTWORK", ns.UI.Font("GameFontDisableSmall"))
 	sub:SetPoint("BOTTOMLEFT", 18, 8)
 	sub:SetPoint("RIGHT", -60, 0)
 	sub:SetJustifyH("LEFT")
 	sub:SetWordWrap(false)
 	button.Sub = sub
 
-	local age = button:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	local age = button:CreateFontString(nil, "ARTWORK", ns.UI.Font("GameFontDisableSmall"))
 	age:SetPoint("BOTTOMRIGHT", -6, 8)
 	age:SetJustifyH("RIGHT")
 	button.Age = age
@@ -153,18 +156,23 @@ local function InitRow(button, ed)
 	local selected = t.id == ns.viewId and ns.Main.mode ~= "new"
 	button.Selected:SetShown(selected)
 	if button.AccentBar then button.AccentBar:SetShown(selected) end
+	local theme = ns.Theme.Get()
+	-- The selected thread is bold, the kit's one change of weight; set the face
+	-- before measuring the title against the row.
+	if theme then button.Title:SetFontObject(selected and "T3ModernBodyBold" or "T3ModernBody") end
 	button.Title:SetText(t.title)
 	local rowW = button:GetWidth() or 0
 	TrimTo(button.Title, t.title, rowW - 18 - 78)
-	local theme = ns.Theme.Get()
-	if t.s == "settled" or t.s == "snoozed" then
-		button.Title:SetTextColor(theme and theme.muted[1] or 0.75, theme and theme.muted[2] or 0.75, theme and theme.muted[3] or 0.75)
-	elseif theme then
-		button.Title:SetTextColor(theme.accent[1], theme.accent[2], theme.accent[3])
+	if theme then
+		local ink = selected and theme.accent or ((t.s == "settled" or t.s == "snoozed") and theme.muted or theme.text)
+		ns.Theme.SetText(button.Title, ink)
+	elseif t.s == "settled" or t.s == "snoozed" then
+		button.Title:SetTextColor(0.75, 0.75, 0.75)
 	else
 		button.Title:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
 	end
 	local color = DOT_COLORS[t.s] or (t.un and DOT_COLORS.unread)
+	if theme and color then color = theme[DOT_TOKENS[t.s] or "blue"] end
 	button.Dot:SetShown(color ~= nil)
 	if color then button.Dot:SetVertexColor(color[1], color[2], color[3]) end
 	button.Status:SetText(ns.Color(ns.Store.StatusColor(t.s), ns.Store.StatusText(t.s)))
@@ -202,9 +210,9 @@ function L:Create(parent)
 	local theme = ns.Theme.Get()
 	if theme then
 		-- A flat well over the template's art; its magnifier stays on top.
-		local well = ns.Theme.Solid(search, theme.track, "ARTWORK")
+		local well = ns.Theme.Solid(search, theme.panel, "ARTWORK")
 		well:SetAllPoints()
-		ns.Theme.Edges(search, theme.hairline)
+		ns.Theme.Edges(search, theme.controlBorder)
 		ns.UI.UseLineSearch(search)
 	end
 	search:HookScript("OnTextChanged", function(box)

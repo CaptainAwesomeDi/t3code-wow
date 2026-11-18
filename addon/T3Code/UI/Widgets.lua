@@ -24,6 +24,9 @@ local LINE_ICONS = {
 	["common-button-list-minus"] = "minus",
 }
 
+-- The font for a game template: itself on the classic look, the kit's on the modern.
+UI.Font = Theme.Font
+
 function UI.LineIcon(name)
 	return ns.media .. "icons\\" .. name
 end
@@ -62,13 +65,16 @@ function UI.UseLineSearch(search)
 	icon:SetVertexColor(theme.muted[1], theme.muted[2], theme.muted[3], 1)
 	search.LineIcon = icon
 	search:SetTextInsets(SEARCH_INSET, 8, 0, 0)
+	-- The typed text in the theme's foreground, at the kit's body size.
+	search:SetFontObject(UI.Font("T3ModernSmall"))
 	local hint = search.Instructions
 	if hint then
 		hint:ClearAllPoints()
 		hint:SetPoint("LEFT", SEARCH_INSET, 0)
 		hint:SetPoint("RIGHT", -8, 0)
 		hint:SetJustifyH("LEFT")
-		Theme.SetText(hint, theme.muted)
+		hint:SetFontObject(UI.Font("T3ModernSmallFaint"))
+		Theme.SetText(hint, theme.faint)
 		if hint.SetDrawLayer then hint:SetDrawLayer("OVERLAY") end
 	end
 	-- The template's own magnifier is an atlas texture on the box. Ours replaces it.
@@ -104,7 +110,7 @@ function UI.StyleScrollBar(bar)
 		track:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -1, 0)
 		if not track.Line then
 			local bg = track:CreateTexture(nil, "BACKGROUND")
-			bg:SetColorTexture(theme.muted[1], theme.muted[2], theme.muted[3], 0.28)
+			Theme.Paint(bg, theme.track)
 			bg:SetWidth(2)
 			bg:SetPoint("TOP", 0, 0)
 			bg:SetPoint("BOTTOM", 0, 0)
@@ -117,7 +123,7 @@ function UI.StyleScrollBar(bar)
 			end
 			if not thumb.Line then
 				local t = thumb:CreateTexture(nil, "OVERLAY")
-				t:SetColorTexture(theme.muted[1], theme.muted[2], theme.muted[3], 0.95)
+				Theme.Paint(t, theme.controlBorder)
 				t:SetAllPoints()
 				thumb.Line = t
 			end
@@ -125,14 +131,14 @@ function UI.StyleScrollBar(bar)
 		end
 	elseif not bar.Line then
 		local bg = bar:CreateTexture(nil, "BACKGROUND")
-		bg:SetColorTexture(theme.muted[1], theme.muted[2], theme.muted[3], 0.28)
+		Theme.Paint(bg, theme.track)
 		bg:SetWidth(2)
 		bg:SetPoint("TOP", 0, 0)
 		bg:SetPoint("BOTTOM", 0, 0)
 		bar.Line = bg
 		local tex = bar.GetThumbTexture and bar:GetThumbTexture()
 		if tex and tex.SetColorTexture then
-			tex:SetColorTexture(theme.muted[1], theme.muted[2], theme.muted[3], 0.95)
+			Theme.Paint(tex, theme.controlBorder)
 		end
 	end
 end
@@ -174,33 +180,39 @@ end
 function UI.Button(parent, text, width, onClick, primary)
 	local theme = Theme.Get()
 	if theme then
+		-- Omarchy's buttons are foreground glass with a border, not color fills. The
+		-- primary one (Send, Start) is drawn as the kit's default dialog button: a
+		-- light wash, an accent border and an accent label, so it stays the one to press.
 		local b = CreateFrame("Button", nil, parent)
 		b:SetSize(width or 110, 24)
-		local bg = Theme.Solid(b, primary and theme.accent or theme.panelAlt)
+		local bg = Theme.Solid(b, primary and theme.hover or theme.panelAlt)
 		bg:SetAllPoints()
-		Theme.Edges(b, theme.hairline)
-		local fs = b:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+		Theme.Edges(b, primary and theme.accent or theme.controlBorder)
+		local fs = b:CreateFontString(nil, "ARTWORK", UI.Font(primary and "T3ModernBodyBold" or "GameFontHighlight"))
 		b:SetFontString(fs)
 		b:SetText(text)
-		local r, g, bl = 1, 1, 1
-		if primary then
-			r, g, bl = theme.onAccent[1], theme.onAccent[2], theme.onAccent[3]
-			-- GameFontHighlight draws a drop shadow. On the accent fill that shadow
-			-- muddies the dark letters, so the face is the same font with it off.
-			local path, size = fs:GetFont()
-			fs:SetFont(path or "Fonts\\FRIZQT__.TTF", size or 12, "")
-			fs:SetShadowOffset(0, 0)
-		end
-		fs:SetTextColor(r, g, bl)
-		-- A disabled button says so in its label, dimmed like the game's own.
-		b:SetScript("OnDisable", function() fs:SetTextColor(0.5, 0.5, 0.5) end)
-		b:SetScript("OnEnable", function() fs:SetTextColor(r, g, bl) end)
-		if not b:IsEnabled() then fs:SetTextColor(0.5, 0.5, 0.5) end
+		local ink = primary and theme.accent or theme.text
+		Theme.SetText(fs, ink)
+		-- A disabled button says so in its label, in the theme's faint text.
+		b:SetScript("OnDisable", function() Theme.SetText(fs, theme.faint) end)
+		b:SetScript("OnEnable", function() Theme.SetText(fs, ink) end)
+		if not b:IsEnabled() then Theme.SetText(fs, theme.faint) end
 		local hl = Theme.Solid(b, theme.hover, "HIGHLIGHT")
 		hl:SetAllPoints()
-		-- A press nudges the label down a pixel.
-		b:SetScript("OnMouseDown", function(self) if self:IsEnabled() then fs:AdjustPointsOffset(0, -1) end end)
-		b:SetScript("OnMouseUp", function(self) if self:IsEnabled() then fs:AdjustPointsOffset(0, 1) end end)
+		-- Held down: the kit's pressed fill, and the label nudged down a pixel.
+		local down = Theme.Solid(b, theme.pressed, "BORDER")
+		down:SetAllPoints()
+		down:Hide()
+		b:SetScript("OnMouseDown", function(self)
+			if not self:IsEnabled() then return end
+			down:Show()
+			fs:AdjustPointsOffset(0, -1)
+		end)
+		b:SetScript("OnMouseUp", function(self)
+			if not down:IsShown() then return end
+			down:Hide()
+			fs:AdjustPointsOffset(0, 1)
+		end)
 		if onClick then b:SetScript("OnClick", onClick) end
 		return b
 	end
@@ -211,37 +223,54 @@ function UI.Button(parent, text, width, onClick, primary)
 	return b
 end
 
--- A pill switch on the right of a CheckButton. The round ends are in the texture:
--- this client draws a mask as a square. Gold when on, dark when off, and the thumb
--- slides. The whole row is the hit target. `Fill` is the thumb.
+-- Omarchy's switch on the right of a CheckButton: square, as the kit's corners are.
+-- On, the track is the selected glass and the knob the accent, at the right; off,
+-- the track is the normal glass with its border and the knob the foreground darker
+-- 1.25, at the left. The whole row is the hit target. `Fill` is the knob.
+local SWITCH_W, SWITCH_H, KNOB = 40, 20, 14
+
 function UI.PaintSwitch(b)
 	local theme = Theme.Get()
 	local holder = CreateFrame("Frame", nil, b)
-	holder:SetSize(36, 16)
+	holder:SetSize(SWITCH_W, SWITCH_H)
 	holder:SetPoint("RIGHT", -12, 0)
 	holder:EnableMouse(false) -- the row behind it receives the click
 	b.Switch = holder
 	local track = holder:CreateTexture(nil, "ARTWORK")
 	track:SetAllPoints()
-	track:SetTexture(UI.LineIcon("switch-track"))
+	holder.Track = track
+	local edges = { Theme.Edges(holder, theme.controlBorder) }
 	local knob = holder:CreateTexture(nil, "OVERLAY")
-	knob:SetTexture(UI.LineIcon("switch-knob"))
-	knob:SetSize(12, 12)
-	knob:SetVertexColor(theme.knob[1], theme.knob[2], theme.knob[3], 1)
+	knob:SetSize(KNOB, KNOB)
 	b.Fill = knob
 	-- A bare check button would draw the game's yellow tick. Keep the button, hide the tick.
 	local blank = b:CreateTexture(nil, "ARTWORK")
 	blank:SetColorTexture(0, 0, 0, 0)
 	blank:SetAllPoints()
 	b:SetCheckedTexture(blank)
+	local inset = (SWITCH_H - KNOB) / 2
 	function b:Sync()
 		local on = self:GetChecked() and true or false
-		local c = on and theme.accent or theme.switchOff
-		track:SetVertexColor(c[1], c[2], c[3], c[4] or 1)
+		Theme.Paint(track, on and theme.selected or theme.switchOff)
+		for _, e in ipairs(edges) do e:SetShown(not on) end
+		Theme.Paint(knob, on and theme.accent or theme.knob)
 		self.Fill:ClearAllPoints()
-		self.Fill:SetPoint(on and "RIGHT" or "LEFT", holder, on and "RIGHT" or "LEFT", on and -2 or 2, 0)
+		self.Fill:SetPoint(on and "RIGHT" or "LEFT", holder, on and "RIGHT" or "LEFT", on and -inset or inset, 0)
 	end
 	return b
+end
+
+-- An icon that turns red while what it starts is running (dictation, reading
+-- aloud). In the modern window the theme's red over its foreground, so a line
+-- icon stays visible on a light theme.
+function UI.TintActive(icon, on)
+	local theme = Theme.Get()
+	if theme then
+		local c = on and theme.red or theme.text
+		icon:SetVertexColor(c[1], c[2], c[3], 1)
+	else
+		icon:SetVertexColor(1, on and 0.3 or 1, on and 0.3 or 1)
+	end
 end
 
 -- A square button showing an atlas or texture, like the chat frame's small buttons.
@@ -316,10 +345,10 @@ function UI.Cycler(parent, width, onChange)
 	local arrow = b:CreateTexture(nil, "ARTWORK")
 	if theme then
 		arrow:SetTexture(UI.LineIcon("chevron-down"))
-		arrow:SetVertexColor(theme.muted[1], theme.muted[2], theme.muted[3], 1)
+		arrow:SetVertexColor(theme.text[1], theme.text[2], theme.text[3], 1)
 		arrow:SetSize(12, 12)
-		arrow:SetPoint("RIGHT", -7, 0)
-		Theme.Edges(b, theme.hairline)
+		arrow:SetPoint("RIGHT", -8, 0)
+		Theme.Edges(b, theme.controlBorder)
 	else
 		arrow:SetAtlas("common-dropdown-a-button")
 		arrow:SetSize(22, 22)
@@ -335,7 +364,7 @@ function UI.Cycler(parent, width, onChange)
 		hl:SetAlpha(0.25)
 	end
 	hl:SetAllPoints()
-	local text = b:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	local text = b:CreateFontString(nil, "ARTWORK", UI.Font("GameFontHighlightSmall"))
 	text:SetPoint("LEFT", 10, 0)
 	text:SetPoint("RIGHT", arrow, "LEFT", -4, 0)
 	text:SetJustifyH("LEFT")
@@ -406,7 +435,7 @@ local function EnsureList()
 	if theme then
 		Theme.Paint(bg, theme.overlay)
 		bg:SetAllPoints()
-		Theme.Edges(list, theme.hairline)
+		Theme.Edges(list, theme.popupBorder)
 	else
 		bg:SetAtlas("common-dropdown-bg")
 		bg:SetPoint("TOPLEFT", -10, 3)
@@ -449,7 +478,7 @@ local function EnsureList()
 				-- A line check at the right edge of the chosen row.
 				row.Check = row:CreateTexture(nil, "ARTWORK")
 				row.Check:SetTexture(UI.LineIcon("check"))
-				row.Check:SetVertexColor(theme.text[1], theme.text[2], theme.text[3], 1)
+				row.Check:SetVertexColor(theme.accent[1], theme.accent[2], theme.accent[3], 1)
 				row.Check:SetSize(12, 12)
 				row.Check:SetPoint("RIGHT", -8, 0)
 				row.Check:Hide()
@@ -459,19 +488,21 @@ local function EnsureList()
 				row.Check:SetSize(14, 14)
 				row.Check:SetPoint("LEFT", 4, 0)
 			end
-			row.Text = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+			row.Text = row:CreateFontString(nil, "ARTWORK", UI.Font("GameFontHighlightSmall"))
 			row.Text:SetPoint("LEFT", theme and 10 or 22, 0)
 			row.Text:SetPoint("RIGHT", theme and -24 or -4, 0)
 			row.Text:SetJustifyH("LEFT")
 			row.Text:SetWordWrap(false)
 		end
 		if ed.header then
-			-- A group title: gold in the game's look, quiet grey in the modern one.
+			-- A group title: gold in the game's look; in the modern one the kit's
+			-- section header, bold dim caption.
 			if row.Check then row.Check:Hide() end
 			row.Text:SetPoint("LEFT", 6, 0)
 			row.Text:SetText(ed.label)
 			if theme then
-				row.Text:SetTextColor(0.65, 0.68, 0.75)
+				row.Text:SetFontObject("T3ModernCaption")
+				Theme.SetText(row.Text, theme.muted)
 			else
 				row.Text:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
 			end
@@ -484,8 +515,11 @@ local function EnsureList()
 		local selected = list.owner and list.owner.value == ed.value
 		if row.Check then row.Check:SetShown(selected) end
 		row.Text:SetText(ed.label)
-		-- The accent stays on the selection bar. The label stays white.
-		if selected and not theme then
+		if theme then
+			-- The kit's menu row: the chosen one bold in the accent, with its check.
+			row.Text:SetFontObject(selected and "T3ModernBodyBold" or "T3ModernSmall")
+			Theme.SetText(row.Text, selected and theme.accent or theme.text)
+		elseif selected then
 			row.Text:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
 		else
 			row.Text:SetTextColor(1, 1, 1)
@@ -630,13 +664,26 @@ function UI.Slider(parent, width, min, max, step, onChange, format)
 	track:SetSize(b.trackW, 4)
 	track:SetPoint("LEFT", 4, 0)
 	local fill = b:CreateTexture(nil, "ARTWORK")
-	if theme then Theme.Paint(fill, theme.accent) else fill:SetColorTexture(1, 0.82, 0, 1) end
+	if theme then Theme.Paint(fill, theme.text) else fill:SetColorTexture(1, 0.82, 0, 1) end
 	fill:SetHeight(4)
 	fill:SetPoint("LEFT", track, "LEFT", 0, 0)
-	local thumb = b:CreateTexture(nil, "OVERLAY")
-	thumb:SetSize(8, 14)
-	if theme then Theme.Paint(thumb, theme.knob) else thumb:SetColorTexture(1, 0.82, 0, 1) end
-	local text = b:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	local thumb = b:CreateTexture(nil, "OVERLAY", nil, 2)
+	if theme then
+		-- The kit's knob: a round foreground dot, ringed in the surface color.
+		thumb:SetSize(14, 14)
+		thumb:SetTexture(UI.LineIcon("switch-knob"))
+		thumb:SetVertexColor(theme.text[1], theme.text[2], theme.text[3], 1)
+		local ring = b:CreateTexture(nil, "OVERLAY", nil, 1)
+		ring:SetSize(18, 18)
+		ring:SetTexture(UI.LineIcon("switch-knob"))
+		ring:SetVertexColor(theme.windowBg[1], theme.windowBg[2], theme.windowBg[3], 1)
+		ring:SetPoint("CENTER", thumb, "CENTER")
+		b.Ring = ring
+	else
+		thumb:SetSize(8, 14)
+		thumb:SetColorTexture(1, 0.82, 0, 1)
+	end
+	local text = b:CreateFontString(nil, "ARTWORK", UI.Font("GameFontHighlightSmall"))
 	text:SetPoint("RIGHT", 0, 0)
 	text:SetJustifyH("RIGHT")
 	if theme then Theme.SetText(text, theme.muted) end
@@ -702,7 +749,7 @@ function UI.Inset(parent)
 end
 
 function UI.Text(parent, font, justify, layer)
-	local fs = parent:CreateFontString(nil, layer or "ARTWORK", font or "GameFontHighlight")
+	local fs = parent:CreateFontString(nil, layer or "ARTWORK", UI.Font(font or "GameFontHighlight"))
 	fs:SetJustifyH(justify or "LEFT")
 	return fs
 end
@@ -736,16 +783,28 @@ function UI.InitGroupHeader(button)
 	local icon = button:CreateTexture(nil, "ARTWORK")
 	icon:SetPoint("LEFT", 10, 0)
 	button.Icon = icon
-	local text = button:CreateFontString(nil, "ARTWORK", "Game15Font_Shadow")
-	text:SetPoint("CENTER", 6, 0)
-	text:SetTextColor(HIGHLIGHT_FONT_COLOR:GetRGB())
+	local text
+	if theme then
+		-- The kit's section header: a bold caption in the dim text, at the left.
+		text = button:CreateFontString(nil, "ARTWORK", "T3ModernCaption")
+		text:SetPoint("LEFT", icon, "RIGHT", 8, 0)
+	else
+		text = button:CreateFontString(nil, "ARTWORK", "Game15Font_Shadow")
+		text:SetPoint("CENTER", 6, 0)
+		text:SetTextColor(HIGHLIGHT_FONT_COLOR:GetRGB())
+	end
 	button.Text = text
 end
 
 function UI.SetGroupHeader(button, label, count, collapsed)
-	button.Text:SetText(string.format("%s  |cff9d9d9d(%d)|r", label, count))
+	button.Text:SetText(Theme.Markup(string.format("%s  |cff9d9d9d(%d)|r", label, count)))
 	local mark = collapsed and "common-button-list-plus" or "common-button-list-minus"
-	if not UI.SetIcon(button.Icon, mark, 12) then button.Icon:SetAtlas(mark, true) end
+	if UI.SetIcon(button.Icon, mark, 10) then
+		local m = Theme.MODERN.muted
+		button.Icon:SetVertexColor(m[1], m[2], m[3], 1)
+	else
+		button.Icon:SetAtlas(mark, true)
+	end
 end
 
 function UI.ProgressBar(parent)
@@ -769,13 +828,13 @@ function UI.ProgressBar(parent)
 	if theme then
 		-- A solid track with the fill the same height, and the percent beside it.
 		-- A hairline with the number on top looks empty until the fill is almost full.
-		text = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		text = holder:CreateFontString(nil, "OVERLAY", "T3ModernSmallDim")
 		text:SetPoint("RIGHT", 0, 0)
 		local track = CreateFrame("Frame", nil, holder)
-		track:SetHeight(8)
+		track:SetHeight(6)
 		track:SetPoint("LEFT", 0, 0)
 		track:SetPoint("RIGHT", text, "LEFT", -10, 0)
-		local bg = Theme.Solid(track, theme.panelAlt)
+		local bg = Theme.Solid(track, theme.track)
 		bg:SetAllPoints()
 		barParent = track
 	end
@@ -803,9 +862,12 @@ function UI.ProgressBar(parent)
 	function holder:SetPercent(p)
 		p = math.max(0, math.min(100, p or 0))
 		bar:SetValue(p)
-		if p >= 90 then bar:SetStatusBarColor(0.8, 0.15, 0.1)
+		if theme then
+			-- The kit's meter: the foreground, then warning and urgent.
+			local c = p >= 90 and theme.red or (p >= 70 and theme.yellow or theme.text)
+			bar:SetStatusBarColor(c[1], c[2], c[3])
+		elseif p >= 90 then bar:SetStatusBarColor(0.8, 0.15, 0.1)
 		elseif p >= 70 then bar:SetStatusBarColor(0.85, 0.6, 0.1)
-		elseif theme then bar:SetStatusBarColor(theme.accent[1], theme.accent[2], theme.accent[3])
 		else bar:SetStatusBarColor(0.1, 0.7, 0.15) end
 		text:SetText(string.format("%d%% used", p))
 	end

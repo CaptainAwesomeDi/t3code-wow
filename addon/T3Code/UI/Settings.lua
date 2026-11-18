@@ -25,6 +25,12 @@ local function ChooseDesign(value)
 	ns.Main:ApplyTheme()
 end
 
+local function ChoosePalette(value)
+	if value == ns.db.settings.palette then return end
+	ns.db.settings.palette = value
+	if ns.db.settings.theme == "modern" then ns.Main:ApplyTheme() end
+end
+
 local function ChooseAccent(value)
 	if value == (ns.db.settings.accent or "class") then return end
 	ns.db.settings.accent = value
@@ -64,7 +70,7 @@ local SECTIONS = {
 	{ id = "threads", label = "Threads", title = "Threads", blurb = "What a message does, and where a new thread starts." },
 	{ id = "voice", label = "Voice", title = "Voice", blurb = "Reading replies aloud, and dictation." },
 	{ id = "window", label = "Window", title = "Window", blurb = "Where the window shows up, and which design it uses." },
-	{ id = "modern", label = "Modern", title = "Modern", blurb = "Accent and transparency for this flat window." },
+	{ id = "modern", label = "Modern", title = "Modern", blurb = "Omarchy's themes, the accent, and transparency." },
 	{ id = "connection", label = "Connection", title = "Connection", blurb = "The link between the game and T3 Code." },
 }
 
@@ -148,7 +154,7 @@ function S:CreateClassic(page)
 	design:SetPoint("LEFT", designLabel, "RIGHT", 16, 0)
 	design:SetOptions({
 		{ value = "classic", label = "Classic (the game's own look)" },
-		{ value = "modern", label = "Modern (flat, dark)" },
+		{ value = "modern", label = "Modern (Omarchy)" },
 	}, ns.db.settings.theme or "classic")
 	self.design = design
 	y = y - 34
@@ -198,14 +204,15 @@ end
 
 -- One setting row: a name, the line under it, a hairline, and the control on the right.
 local function Describe(row, title, desc, right, theme)
-	local name = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+	-- The kit's setting row: the name in the body face, the line under it a dim caption.
+	local name = row:CreateFontString(nil, "ARTWORK", "T3ModernBody")
 	name:SetPoint("TOPLEFT", 12, -9)
 	name:SetPoint("RIGHT", right, "LEFT", -12, 0)
 	name:SetJustifyH("LEFT")
 	name:SetWordWrap(false)
 	name:SetText(title)
 	Theme.SetText(name, theme.text)
-	local about = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	local about = row:CreateFontString(nil, "ARTWORK", "T3ModernCaption")
 	about:SetPoint("TOPLEFT", name, "BOTTOMLEFT", 0, -2)
 	about:SetPoint("RIGHT", right, "LEFT", -12, 0)
 	about:SetJustifyH("LEFT")
@@ -241,16 +248,16 @@ function S:CreateModern(page)
 	search:SetPoint("TOPLEFT", 10, -12)
 	search:SetPoint("TOPRIGHT", -10, -12)
 	search:SetAutoFocus(false)
-	local well = Theme.Solid(search, theme.track, "ARTWORK")
+	local well = Theme.Solid(search, theme.panel, "ARTWORK")
 	well:SetAllPoints()
-	Theme.Edges(search, theme.hairline)
+	Theme.Edges(search, theme.controlBorder)
 	UI.UseLineSearch(search)
 	-- The template's own hint sits under the flat well. Ours reads "Search settings".
 	if search.Instructions then search.Instructions:Hide() end
-	local hint = search:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	local hint = search:CreateFontString(nil, "OVERLAY", "T3ModernSmallFaint")
 	hint:SetPoint("LEFT", search.lineInset or 30, 0)
 	hint:SetText("Search settings")
-	Theme.SetText(hint, theme.muted)
+	Theme.SetText(hint, theme.faint)
 	search.Hint = hint
 	search:HookScript("OnTextChanged", function(box)
 		if box.Instructions then box.Instructions:Hide() end
@@ -281,7 +288,7 @@ function S:CreateModern(page)
 		b.Bar:Hide()
 		local hl = Theme.Solid(b, theme.hover, "HIGHLIGHT")
 		hl:SetAllPoints()
-		b.Text = b:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+		b.Text = b:CreateFontString(nil, "ARTWORK", "T3ModernBody")
 		b.Text:SetPoint("LEFT", 12, 0)
 		b.Text:SetText(sec.label)
 		b:SetScript("OnClick", function()
@@ -304,10 +311,11 @@ function S:CreateModern(page)
 	body:SetPoint("TOPLEFT", nav, "TOPRIGHT", 1, 0)
 	body:SetPoint("BOTTOMRIGHT")
 
-	self.heading = UI.Text(body, "GameFontNormalLarge")
+	-- The kit's heading level: 16 bold, with a body-size dim line under it.
+	self.heading = UI.Text(body, "T3ModernHeading")
 	self.heading:SetPoint("TOPLEFT", 16, -12)
 	Theme.SetText(self.heading, theme.text)
-	self.subhead = UI.Text(body, "GameFontHighlightSmall")
+	self.subhead = UI.Text(body, "T3ModernBodyDim")
 	self.subhead:SetPoint("TOPLEFT", self.heading, "BOTTOMLEFT", 0, -2)
 	self.subhead:SetPoint("RIGHT", body, "RIGHT", -16, 0)
 	self.subhead:SetWordWrap(false)
@@ -406,10 +414,10 @@ function S:CreateModern(page)
 	table.insert(self.rows, hear)
 	table.insert(self.controls, test)
 
-	self.design = ChoiceRow("window", "Design", "Classic uses the game's own frames. Modern is this flat dark look.", "design classic modern look", 220, ChooseDesign)
+	self.design = ChoiceRow("window", "Design", "Classic uses the game's own frames. Modern follows Omarchy's look and themes.", "design classic modern look", 220, ChooseDesign)
 	self.design:SetOptions({
 		{ value = "classic", label = "Classic (the game's own look)" },
-		{ value = "modern", label = "Modern (flat, dark)" },
+		{ value = "modern", label = "Modern (Omarchy)" },
 	}, ns.db.settings.theme or "classic")
 
 	self.size = ChoiceRow("window", "Window size", "Automatic grows the window while a controller is in use.", "window size automatic normal large", 220, function(value)
@@ -423,14 +431,23 @@ function S:CreateModern(page)
 		{ value = "xlarge", label = "Extra large" },
 	}, ns.db.settings.windowScale or "auto")
 
-	self.accent = ChoiceRow("modern", "Accent", "Colors Start, the selected thread, and headings. Class color follows your class.", "accent class verdigris ice copper gold color modern", 220, ChooseAccent)
+	local paletteHay = "theme omarchy colors light dark modern"
+	for _, p in ipairs(Theme.Palettes()) do paletteHay = paletteHay .. " " .. p.label:lower() end
+	self.palette = ChoiceRow("modern", "Theme", "One of Omarchy's own themes.", paletteHay, 220, ChoosePalette)
+	self.palette:SetOptions(Theme.Palettes(), ns.db.settings.palette)
+
+	local accentDesc = "Marks what's chosen: the selected thread, checks, and switches that are on."
+	if Theme.accentWhy == "faint" then
+		accentDesc = "Your class color is too faint on this theme, so the theme's accent is used."
+	end
+	self.accent = ChoiceRow("modern", "Accent", accentDesc, "accent class color theme modern", 220, ChooseAccent)
 	self.accent:SetOptions(AccentChoices(), ns.db.settings.accent or "class")
 
 	local clearRow = CreateFrame("Frame", nil, content)
 	local opacity = UI.Slider(clearRow, 200, 0, 100, 1, ChooseClear, ClearText)
 	opacity:SetPoint("RIGHT", -8, 0)
 	opacity:SetValue(ns.db.settings.windowClear or 6, true)
-	Describe(clearRow, "Transparency", "How much of the world shows through this window. It starts where the dusk ground did.", opacity, theme)
+	Describe(clearRow, "Transparency", "How much of the world shows through this window and its notices.", opacity, theme)
 	clearRow.section = "modern"
 	clearRow.hay = "transparency opacity clear solid modern window"
 	table.insert(self.rows, clearRow)
@@ -465,7 +482,7 @@ function S:CreateModern(page)
 	local report = UI.Button(body, "Report a problem", 150, function() ns.Main:ShowPage("threads") ns.Main:Report() end)
 	report:SetPoint("LEFT", selftest, "RIGHT", 6, 0)
 	UI.Tooltip(report, "Report a problem", "Puts diagnostics in the message box and attaches a screenshot, for the thread you have open (or a new one).")
-	for _, w in ipairs({ self.voice, self.design, self.accent, self.size, test, reload, resetTracker, selftest, report }) do
+	for _, w in ipairs({ self.voice, self.design, self.palette, self.accent, self.size, test, reload, resetTracker, selftest, report }) do
 		table.insert(self.controls, w)
 	end
 
@@ -513,6 +530,7 @@ function S:Layout()
 		local on = q == "" and b.id == self.section
 		b.Wash:SetShown(on)
 		b.Bar:SetShown(on)
+		b.Text:SetFontObject(on and "T3ModernBodyBold" or "T3ModernBody")
 		Theme.SetText(b.Text, on and theme.text or theme.muted)
 	end
 end
@@ -521,6 +539,7 @@ end
 function S:Teardown()
 	self.page, self.checks, self.controls = nil, nil, nil
 	self.voice, self.size, self.design, self.accent, self.opacity, self.info = nil, nil, nil, nil, nil, nil
+	self.palette = nil
 	self.rows, self.nav, self.search, self.heading, self.subhead = nil, nil, nil, nil, nil
 	self.infoRow, self.content, self.empty, self.section = nil, nil, nil, nil
 end
@@ -546,6 +565,10 @@ function S:Refresh()
 	self.size:Update()
 	self.design.value = ns.db.settings.theme or "classic"
 	self.design:Update()
+	if self.palette then
+		self.palette.value = ns.db.settings.palette
+		self.palette:Update()
+	end
 	if self.accent then
 		self.accent.value = ns.db.settings.accent or "class"
 		self.accent:Update()

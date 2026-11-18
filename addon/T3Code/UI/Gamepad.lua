@@ -123,7 +123,13 @@ local function EnsurePointer(f)
 	glow = CreateFrame("Frame", nil, f, "BackdropTemplate")
 	glow:SetFrameStrata("TOOLTIP")
 	glow:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 14 })
-	glow:SetBackdropBorderColor(1, 0.82, 0, 0.9)
+	-- The controller's cursor: the game's gold, or the accent in the modern window.
+	local theme = ns.Theme.Get()
+	if theme then
+		glow:SetBackdropBorderColor(theme.accent[1], theme.accent[2], theme.accent[3], 0.9)
+	else
+		glow:SetBackdropBorderColor(1, 0.82, 0, 0.9)
+	end
 	glow:EnableMouse(false)
 	pointer:EnableMouse(false)
 	pointer:Hide()

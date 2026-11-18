@@ -19,11 +19,17 @@ ns.COLORS = {
 	orange = "ffff9b38",
 }
 
+-- Text in one of the colors above. In the modern window they are the theme's:
+-- gold is the accent, white the foreground, grey the dim text, and so on.
 function ns.Color(key, text)
 	local hex = ns.COLORS[key] or key
-	-- In the modern window, gold is the accent. Chat keeps COLORS.gold.
-	if key == "gold" and ns.Theme and ns.Theme.Get() then hex = ns.Theme.ACCENT_HEX end
+	if ns.Theme and ns.Theme.Get() and ns.Theme.MARKUP[key] then hex = ns.Theme.MARKUP[key] end
 	return "|c" .. hex .. tostring(text) .. "|r"
+end
+
+-- The same for the chat frame, which keeps the game's colors in either design.
+function ns.ChatColor(key, text)
+	return "|c" .. (ns.COLORS[key] or key) .. tostring(text) .. "|r"
 end
 
 ---------------------------------------------------------------------------
@@ -106,9 +112,10 @@ local DEFAULTS = {
 		quietInstances = true,
 		windowScale = "auto",
 		padChord = "auto",
-		theme = "classic", -- classic (the game's own look) | modern (flat, dark)
-		accent = "class", -- class (the player's) | verdigris | ice | copper | gold, the modern window only
-		windowClear = 6, -- modern window only: 0 is solid, 6 is the dusk ground, 100 lets the world show through
+		theme = "classic", -- classic (the game's own look) | modern (Omarchy's UI kit)
+		palette = "tokyo-night", -- modern window only: one of Omarchy's built-in themes (UI/Palettes.lua)
+		accent = "class", -- modern window only: class (the player's class color) | theme (the theme's accent)
+		windowClear = 6, -- modern window only: 0 is solid, 100 lets the world show through
 		listWidth = 300, -- the thread list, dragged wider or narrower from its edge
 	},
 	drafts = {},
@@ -132,6 +139,17 @@ local function ApplyDefaults(dst, src)
 			ApplyDefaults(dst[k], v)
 		end
 	end
+end
+
+-- Settings saved by an earlier version. The fixed accents (verdigris, ice, copper,
+-- gold) gave way to the theme's own; a theme Omarchy no longer ships is Tokyo Night.
+function ns.MigrateSettings(s)
+	if s.accent ~= "class" and s.accent ~= "theme" then s.accent = "theme" end
+	local known
+	for _, p in ipairs(ns.PALETTES or {}) do
+		if p.id == s.palette then known = true end
+	end
+	if not known then s.palette = DEFAULTS.settings.palette end
 end
 
 local function RandomToken(n)
@@ -219,6 +237,7 @@ frame:SetScript("OnEvent", ns.Safe(function(_, event, arg1, ...)
 		T3CodeDB = T3CodeDB or {}
 		ApplyDefaults(T3CodeDB, DEFAULTS)
 		ns.db = T3CodeDB
+		ns.MigrateSettings(ns.db.settings)
 		if not ns.db.session then ns.db.session = RandomToken(8) end
 		-- One token per UI session: the bridge uses it to notice /reload.
 		ns.ui = RandomToken(6)

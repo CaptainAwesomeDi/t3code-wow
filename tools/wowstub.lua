@@ -54,6 +54,7 @@ local GETTERS = {
 	GetPushedTexture = function() return Stub.NewFrame("Texture") end,
 	GetFontHeight = function() return 14 end,
 	GetFrameLevel = function(self) return self._level or 1 end,
+	GetFont = function(self) local f = self._font if f then return f[1], f[2], f[3] end end,
 	GetVerticalScroll = function(self) return self._vscroll or 0 end,
 	GetVerticalScrollRange = function(self) return self._vrange or 0 end,
 	GetRegions = function(self) return unpack(self._regions or {}) end,
@@ -100,7 +101,12 @@ local SETTERS = {
 	SetTextColor = function(self, r, g, b, a) self._textColor = { r, g, b, a or 1 } end,
 	SetAlpha = function(self, a) self._alpha = a end,
 	SetTexture = function(self, tex) self._texture = tex end,
-	SetFont = function(self, path, size, flags) self._font = { path, size, flags } end,
+	-- A font file the client can't load: SetFont answers false and sets nothing.
+	SetFont = function(self, path, size, flags)
+		if Stub.missingFonts and Stub.missingFonts[path] then return false end
+		self._font = { path, size, flags }
+		return true
+	end,
 	SetFontObject = function(self, name) self._fontObject = name self._font = nil end,
 	SetShadowOffset = function(self, x, y) self._shadow = { x, y } end,
 	SetBackdrop = function(self, info) self._backdrop = info end,
@@ -121,7 +127,11 @@ local SETTERS = {
 	SetEnabled = function(self, e) self._enabled = e and true or false end,
 	RegisterEvent = function(self, e) Stub.events[e] = Stub.events[e] or {} Stub.events[e][self] = true end,
 	CreateTexture = function(self) return addRegion(self, Stub.NewFrame("Texture", self)) end,
-	CreateFontString = function(self, _, _, font) return addRegion(self, Stub.NewFrame("FontString", self)) end,
+	CreateFontString = function(self, _, _, font)
+		local fs = addRegion(self, Stub.NewFrame("FontString", self))
+		fs._fontObject = font
+		return fs
+	end,
 	CreateMaskTexture = function(self) return Stub.NewFrame("Texture", self) end,
 	-- A CheckButton flips before OnClick, as the client does.
 	Click = function(self)
@@ -247,6 +257,12 @@ end
 -- Globals ---------------------------------------------------------------------
 
 _G.CreateFrame = function(kind, name, parent, template) return Stub.NewFrame(kind, parent, name, template) end
+-- A font object, by name, as the client makes them.
+_G.CreateFont = function(name)
+	local f = Stub.NewFrame("Font")
+	if name then _G[name] = f end
+	return f
+end
 _G.UIParent = Stub.NewFrame("Frame", nil, "UIParent")
 _G.UIParent._shown = true
 _G.WorldFrame = Stub.NewFrame("Frame")

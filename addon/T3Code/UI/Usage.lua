@@ -43,7 +43,7 @@ local function Header(content)
 		bg:SetAtlas("common-button-list-collapseExpand")
 		bg:SetAllPoints()
 	end
-	h.Text = h:CreateFontString(nil, "ARTWORK", "Game15Font_Shadow")
+	h.Text = h:CreateFontString(nil, "ARTWORK", UI.Font("Game15Font_Shadow"))
 	h.Text:SetPoint("CENTER")
 	return h
 end
@@ -51,15 +51,15 @@ end
 local function Row(content)
 	local r = CreateFrame("Frame", nil, content)
 	r:SetHeight(44)
-	r.Label = r:CreateFontString(nil, "ARTWORK", "GameFontHighlightMedium")
+	r.Label = r:CreateFontString(nil, "ARTWORK", UI.Font("GameFontHighlightMedium"))
 	r.Label:SetJustifyH("LEFT")
 	r.Label:SetPoint("TOPLEFT", 14, -6)
-	r.Sub = r:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	r.Sub = r:CreateFontString(nil, "ARTWORK", UI.Font("GameFontDisableSmall"))
 	r.Sub:SetPoint("TOPLEFT", r.Label, "BOTTOMLEFT", 0, -3)
 	r.Bar = UI.ProgressBar(r)
 	r.Bar:SetSize(260, 24)
 	r.Bar:SetPoint("RIGHT", -10, 0)
-	r.Value = r:CreateFontString(nil, "ARTWORK", "GameFontHighlightMedium")
+	r.Value = r:CreateFontString(nil, "ARTWORK", UI.Font("GameFontHighlightMedium"))
 	r.Value:SetPoint("RIGHT", -14, 0)
 	return r
 end

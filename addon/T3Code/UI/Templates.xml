@@ -7,6 +7,12 @@
 			<KeyValue key="fontName" value="ChatFontNormal" type="string"/>
 		</KeyValues>
 	</Frame>
+	<!-- The same box in the modern window: the kit's body font, in the theme's foreground. -->
+	<Frame name="T3CodeComposerModernTemplate" inherits="T3CodeComposerTemplate" virtual="true">
+		<KeyValues>
+			<KeyValue key="fontName" value="T3ModernBody" type="string"/>
+		</KeyValues>
+	</Frame>
 
 	<!-- One template per kind of list row: ScrollBox recycles rows per template, so
 	     sharing a plain "Frame" between kinds would leave one kind's text on another. -->

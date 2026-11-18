@@ -1,7 +1,7 @@
 -- A "T3 Code" section beside the objective tracker: what's running, what needs
 -- you, and what just finished. Click a line to open that thread. Classic keeps
--- the tracker's own header. Modern is a dusk card on the same ground as the
--- window, with the accent only on a thread that needs you.
+-- the tracker's own header. Modern is a card on the window's ground, in the
+-- theme's colors: a blue bar while a thread works, orange when it needs you.
 
 local _, ns = ...
 local Theme = ns.Theme
@@ -77,14 +77,13 @@ local function Plain(t)
 	return "Finished · " .. ns.Ago(t.u), "done"
 end
 
-local MARK = {
-	working = { 0.45, 0.68, 0.95, 1 },
-	failed = { 0.90, 0.35, 0.32, 1 },
-}
+-- The bar down a line's left edge, by kind, in the theme's colors: blue while it
+-- works, orange when it needs you, red when it failed.
+local MARK = { working = "blue", needs = "orange", failed = "red" }
 
-local function Flat(fs, size)
-	local font, cur = fs:GetFont()
-	fs:SetFont(font or "Fonts\\FRIZQT__.TTF", size or cur or 12, "")
+-- The kit's flat font, colored from the theme.
+local function Flat(fs, font)
+	fs:SetFontObject(font)
 	fs:SetShadowOffset(0, 0)
 end
 
@@ -226,7 +225,7 @@ end
 
 local BAND = 22
 
--- The dusk card. Built the first time the modern design is on, then shown or
+-- The modern card, on the window's ground. Built the first time the modern design is on, then shown or
 -- hidden with the design so the classic header stays the one the tracker knows.
 function K:EnsureModern()
 	local f = self.frame
@@ -254,10 +253,8 @@ function K:EnsureModern()
 	band:SetScript("OnMouseUp", function(_, button)
 		if button == "LeftButton" and ns.db.settings.trackerLocked then ns.Main:Toggle() end
 	end)
-	local label = band:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+	local label = band:CreateFontString(nil, "ARTWORK", "T3ModernBodyBold")
 	label:SetPoint("LEFT", 10, 0)
-	Flat(label, 12)
-	Theme.SetText(label, theme.text)
 	label:SetText("T3 Code")
 	local chevron = CreateFrame("Button", nil, band)
 	chevron:SetSize(16, 16)
@@ -272,7 +269,17 @@ function K:EnsureModern()
 	rule:SetHeight(1)
 	rule:SetPoint("BOTTOMLEFT", 1, 0)
 	rule:SetPoint("BOTTOMRIGHT", -1, 0)
-	f.Modern = { Bg = bg, Edges = { top, bottom, left, right }, Band = band, Chevron = icon, Rule = rule }
+	f.Modern = { Bg = bg, Edges = { top, bottom, left, right }, Band = band, Chevron = icon, Rule = rule, Label = label }
+end
+
+-- The card is built once; the theme can change after, so paint it on each refresh.
+local function PaintModern(f, theme)
+	local m = f.Modern
+	Theme.Paint(m.Bg, theme.windowBg)
+	for _, edge in ipairs(m.Edges) do Theme.Paint(edge, theme.hairline) end
+	Theme.Paint(m.Rule, theme.hairline)
+	Theme.SetText(m.Label, theme.text)
+	m.Chevron:SetVertexColor(theme.muted[1], theme.muted[2], theme.muted[3], 1)
 end
 
 local function ShowModern(f, on)
@@ -320,8 +327,8 @@ local function StyleModern(b, theme)
 	b.Sub:ClearAllPoints()
 	b.Sub:SetPoint("TOPLEFT", b.Title, "BOTTOMLEFT", 0, -1)
 	b.Sub:SetPoint("RIGHT", -10, 0)
-	Flat(b.Title, 12)
-	Flat(b.Sub, 11)
+	Flat(b.Title, "T3ModernBody")
+	Flat(b.Sub, "T3ModernSmallDim")
 	b.flat = true
 	Theme.SetText(b.Title, theme.text)
 	Theme.SetText(b.Sub, theme.muted)
@@ -373,6 +380,7 @@ function K:Refresh(resetPosition)
 	local theme = Theme.Get()
 	if theme then
 		self:EnsureModern()
+		PaintModern(f, theme)
 		f.Header:Hide()
 		ShowModern(f, true)
 		local collapsed = s.trackerCollapsed and true or false
@@ -412,8 +420,8 @@ function K:Refresh(resetPosition)
 				local plain, kind = Plain(t)
 				b.Sub:SetText(plain)
 				StyleModern(b, theme)
-				if kind == "needs" then Theme.SetText(b.Title, theme.accent) end
-				Mark(b, kind == "needs" and theme.accent or MARK[kind])
+				if kind == "needs" then Theme.SetText(b.Title, theme.orange) end
+				Mark(b, MARK[kind] and theme[MARK[kind]])
 			else
 				StyleClassic(b)
 				local hc = OBJECTIVE_TRACKER_COLOR and OBJECTIVE_TRACKER_COLOR.Header
@@ -431,8 +439,8 @@ function K:Refresh(resetPosition)
 				b.Title:SetText(notice.text)
 				b.Sub:SetText(notice.sub)
 				StyleModern(b, theme)
-				Theme.SetText(b.Title, theme.accent)
-				Mark(b, theme.accent)
+				Theme.SetText(b.Title, theme.orange)
+				Mark(b, theme.orange)
 			else
 				StyleClassic(b)
 				b.Title:SetText(ns.Color("orange", notice.text))

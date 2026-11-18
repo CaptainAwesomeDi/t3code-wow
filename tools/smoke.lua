@@ -1504,9 +1504,18 @@ do
 	ns.Settings.design:Step(1)
 	local f = ns.Main.frame
 	check(f ~= old and ns.db.settings.theme == "modern", "choosing modern in the design dropdown rebuilds the window")
-	check(ns.db.settings.accent == "class" and ns.Theme.ACCENT_HEX == "ff7fd2b3", "the accent defaults to class color, and verdigris until the class is known")
+	check(ns.db.settings.accent == "class" and ns.db.settings.palette == "tokyo-night" and ns.Theme.ACCENT_HEX == "ff7aa2f7", "the window starts on Tokyo Night with class color, and the theme's accent until the class is known")
 	check(ns.Color("gold", "Start") == "|c" .. ns.Theme.ACCENT_HEX .. "Start|r", "a heading uses the accent instead of the game's gold")
-	check(ns.Theme.Markup("|cffffd100Plan|r and |cffff4040no|r") == "|c" .. ns.Theme.ACCENT_HEX .. "Plan|r and |cffff4040no|r", "only the game's gold in a message becomes the accent")
+	-- Every color text carries is the theme's, so a light theme stays readable.
+	local mk = ns.Theme.MARKUP
+	check(mk.white == "ffa9b1d6" and mk.grey == "ff565f89" and mk.red == "fff7768e" and mk.green == "ff9ece6a"
+		and mk.orange == "ffeb927b" and mk.blue == "ff7aa2f7" and mk.agent == mk.blue, "the game's text colors map to Tokyo Night's")
+	local mapped = true
+	for key in pairs(ns.COLORS) do
+		if ns.Color(key, "x") ~= "|c" .. mk[key] .. "x|r" or ns.ChatColor(key, "x") ~= "|c" .. ns.COLORS[key] .. "x|r" then mapped = false end
+	end
+	check(mapped, "every color key maps to the theme in the window, and stays the game's in chat")
+	check(ns.Theme.Markup("|cffffd100Plan|r and |cffff4040no|r, |cFF9D9D9Dquiet|r |cff123456own|r") == "|c" .. mk.gold .. "Plan|r and |c" .. mk.red .. "no|r, |c" .. mk.grey .. "quiet|r |cff123456own|r", "a message's game colors become the theme's, and other colors stay")
 	local printed = #Stub.printed
 	ns.Print("still gold")
 	check(Stub.printed[printed + 1]:find("|cffffd100T3 Code|r", 1, true) ~= nil, "chat keeps the game's gold while the window uses the accent")
@@ -1544,9 +1553,28 @@ do
 	check(not f.ModernRim, "the gold top trim is gone")
 	local rules = 0
 	for _, r in ipairs(f._regions or {}) do
-		if rgba(r._color, hairline) and (r._w == 1 or r._h == 1) then rules = rules + 1 end
+		if rgba(r._color, theme.popupBorder) and (r._w == 1 or r._h == 1) then rules = rules + 1 end
 	end
-	check(rules >= 4, "the window has a hairline border")
+	check(rules >= 4 and rgba(theme.popupBorder, accent), "the window's edge is the accent, as Hyprland's active border")
+	check(rgba(hairline, { 0xa9 / 255, 0xb1 / 255, 0xd6 / 255, 0.12 }) and rgba(theme.panel, { hairline[1], hairline[2], hairline[3], 0.04 })
+		and theme.controlBorder[4] == 0.4 and theme.hover[4] == 0.08 and theme.selected[4] == 0.18 and theme.pressed[4] == 0.22, "the kit's glass: the foreground at its state alphas")
+	-- No text in the modern window keeps a game font: its white would vanish on a light theme.
+	local function under(frame, root)
+		while frame do
+			if frame == root then return true end
+			frame = frame._parent
+		end
+	end
+	local gameFonts = {}
+	for _, fr in ipairs(Stub.frames) do
+		if fr._kind == "FontString" and under(fr, f) and fr._fontObject and not tostring(fr._fontObject):find("^T3Modern") then
+			table.insert(gameFonts, tostring(fr._fontObject))
+		end
+	end
+	local kitCount = 0
+	for _, fr in ipairs(Stub.frames) do if fr._kind == "FontString" and under(fr, f) and tostring(fr._fontObject):find("^T3Modern") then kitCount = kitCount + 1 end end
+	check(kitCount > 50 and #gameFonts == 0, "every text in the modern window uses the kit's fonts: " .. table.concat(gameFonts, ", "))
+	check(f.ModernTitle._fontObject == "T3ModernTitle" and _G.T3ModernTitle and _G.T3ModernTitle._font[2] == 14 and rgba(_G.T3ModernTitle._textColor, text), "the title uses the kit's title font, in the foreground")
 	check(f.ModernBand._color[1] == ground[1] and f.ModernBand._color[4] == f.ModernBg._color[4], "the title is the same navy")
 	local titleAt = f.Subtitle._points and f.Subtitle._points[1]
 	local statusAt = f.Status._points and f.Status._points[1]
@@ -1570,13 +1598,13 @@ do
 		return true
 	end
 	check(tabsMarked(page), "the open page's side tab carries the accent")
-	check(painted(f.Bar.Send, accent) and rgba(labelOf(f.Bar.Send)._textColor, onAccent) and labelOf(f.Bar.Send)._shadow[1] == 0 and labelOf(f.Bar.Send)._shadow[2] == 0, "Send is the gold button, with flat dark text")
+	check(painted(f.Bar.Send, theme.hover) and painted(f.Bar.Send, accent) and rgba(labelOf(f.Bar.Send)._textColor, accent) and labelOf(f.Bar.Send)._fontObject == "T3ModernBodyBold", "Send is the kit's default button: a light wash, an accent border and a bold accent label")
 	check(painted(f.Bar.Refresh, theme.panelAlt) and not painted(f.Bar.Refresh, accent), "the other buttons stay on the flat dark fill")
 	check(f.Bar.Stop.Icon._texture:find("icons\\x", 1, true) and f.Bar.Stop.Background._color[4] == 0, "toolbar icons are line strokes on the ground")
 	check(painted(f.Pages.threads.Right.ComposerInset, panel) and not painted(ns.Transcript.inset, panel), "the message box is a panel and the conversation sits on the window ground")
 	check(painted(ns.Family.bar, hairline) and ns.Family.bar.Up.Icon._texture:find("icons\\chevron-left", 1, true), "the family bar closes with a hairline and a line chevron")
 	local scroll = ns.ThreadList.scrollBar
-	check(scroll._w == 6 and scroll.Line and rgba(scroll.Line._color, { muted[1], muted[2], muted[3], 0.28 }), "the thread list scrollbar is a thin muted line")
+	check(scroll._w == 6 and scroll.Line and rgba(scroll.Line._color, theme.track), "the thread list scrollbar is a thin line in the track color")
 	local press = f._scripts.OnGamePadButtonDown
 	check(ns.Gamepad.capturing and press, "the rebuilt window takes the controller")
 	ns.Gamepad:Highlight(ns.Main.composer)
@@ -1590,9 +1618,9 @@ do
 		notice = ns.Toasts.frames[1]
 	end
 	check(notice.Bar and notice.Bar._shown ~= false and rgba(notice.Bar._color, accent), "a notice carries the accent bar")
-	check(notice.Edge and notice.Edge[1]._shown ~= false and rgba(notice.Edge[1]._color, hairline), "a notice has a hairline around it")
+	check(notice.Edge and notice.Edge[1]._shown ~= false and rgba(notice.Edge[1]._color, theme.popupBorder), "a notice has the accent around it")
 	check(rgba(notice._backdropColor, theme.windowBg) and theme.windowBg[4] < 1, "a notice uses the window's translucent ground")
-	check(rgba(notice.Title._textColor, accent) and notice.Title._shadow[1] == 0, "a notice title uses the accent")
+	check(rgba(notice.Title._textColor, text) and notice.Title._shadow[1] == 0, "a notice title is the foreground")
 	check(notice.Text:GetText():find("Finished", 1, true) and not notice.Text:GetText():find("ff1eff00", 1, true), "a finished notice keeps the status quiet")
 	check(ns.Settings.checks[1].Fill ~= nil and ns.Settings.checks[1].Sync ~= nil, "modern settings use a drawn switch")
 	local search = ns.ThreadList.search
@@ -1613,8 +1641,8 @@ do
 	check(tf.Lines[1].Dot._shown == false and tf.Lines[1].Bar._shown == false, "a finished thread has no dot and no gold bar")
 	ns.Store.data.threads = { { id = "need", title = "Approve", s = "input", l = "Needs you", p = "p" } }
 	ns.Tracker:Refresh()
-	check(tf.Lines[1].Bar._shown ~= false and tf.Lines[1].Bar._color[1] == accent[1], "a thread that needs you carries the gold bar")
-	check(rgba(tf.Lines[1].Title._textColor, accent), "a thread that needs you is titled in gold")
+	check(tf.Lines[1].Bar._shown ~= false and rgba(tf.Lines[1].Bar._color, theme.orange), "a thread that needs you carries the theme's orange bar")
+	check(rgba(tf.Lines[1].Title._textColor, theme.orange), "a thread that needs you is titled in orange")
 	tf.Lines[1]._scripts.OnEnter(tf.Lines[1])
 	check(tf.Lines[1].Hover._shown ~= false and rgba(tf.Lines[1].Hover._color, theme.hover), "a tracker row highlights under the pointer")
 	tf.Lines[1]._scripts.OnLeave(tf.Lines[1])
@@ -1627,10 +1655,10 @@ do
 	}
 	ns.Transport.bridgeNow = time() - 1000
 	ns.Tracker:Refresh()
-	check(tf.Lines[1].Sub:GetText():find("Editing · ", 1, true) and rgba(tf.Lines[1].Bar._color, { 0.45, 0.68, 0.95, 1 }) and tf.Lines[1].Dot._shown == false, "a working thread names what it's doing, with a blue bar")
+	check(tf.Lines[1].Sub:GetText():find("Editing · ", 1, true) and rgba(tf.Lines[1].Bar._color, theme.blue) and tf.Lines[1].Dot._shown == false, "a working thread names what it's doing, with a blue bar")
 	check(tf.Lines[2].Sub:GetText():find("Watching pull request · ", 1, true) and tf.Lines[2].Bar._shown == false, "a waiting thread has no bar")
-	check(tf.Lines[3].Sub:GetText() == "Failed" and rgba(tf.Lines[3].Bar._color, { 0.90, 0.35, 0.32, 1 }), "a failed thread carries a red bar")
-	check(tf.Lines[4].Title:GetText() == "Connection lost" and tf.Lines[4].Bar._shown ~= false and rgba(tf.Lines[4].Bar._color, accent), "a lost connection is a gold line on the card")
+	check(tf.Lines[3].Sub:GetText() == "Failed" and rgba(tf.Lines[3].Bar._color, theme.red), "a failed thread carries a red bar")
+	check(tf.Lines[4].Title:GetText() == "Connection lost" and tf.Lines[4].Bar._shown ~= false and rgba(tf.Lines[4].Bar._color, theme.orange), "a lost connection is an orange line on the card")
 	local collapsed = ns.db.settings.trackerCollapsed
 	ns.db.settings.trackerCollapsed = true
 	ns.Tracker:Refresh()
@@ -1641,14 +1669,14 @@ do
 	ns.Tracker:Refresh()
 	local trackerOn = ns.db.settings.tracker
 	local sw = ns.Settings.checks[1]
-	check(sw:GetChecked() and sw.Fill._points[#sw.Fill._points][1] == "RIGHT" and rgba(sw.Switch._regions[1]._vertex, accent), "a switch that is on is gold, with the thumb to the right")
+	check(sw:GetChecked() and sw.Fill._points[#sw.Fill._points][1] == "RIGHT" and rgba(sw.Switch.Track._color, theme.selected) and rgba(sw.Fill._color, accent), "a switch that is on is the selected glass, with the accent knob to the right")
 	sw:SetChecked(true)
 	sw:Click()
 	check(ns.db.settings.tracker == false, "clicking a switch stores it")
-	check(not sw:GetChecked() and sw.Fill._points[#sw.Fill._points][1] == "LEFT" and rgba(sw.Switch._regions[1]._vertex, theme.switchOff), "a switch that is off is dark, with the thumb to the left")
+	check(not sw:GetChecked() and sw.Fill._points[#sw.Fill._points][1] == "LEFT" and rgba(sw.Switch.Track._color, theme.switchOff) and rgba(sw.Fill._color, theme.knob), "a switch that is off is the normal glass, with a dim knob to the left")
 	sw:Click()
 	check(ns.db.settings.tracker == true, "clicking the switch again turns it back on")
-	check(sw.Fill._points[#sw.Fill._points][1] == "RIGHT" and rgba(sw.Switch._regions[1]._vertex, accent), "the thumb returns to the right when the switch is on")
+	check(sw.Fill._points[#sw.Fill._points][1] == "RIGHT" and rgba(sw.Fill._color, accent), "the knob returns to the right when the switch is on")
 	ns.db.settings.tracker = trackerOn
 	check(ns.Settings.nav and #ns.Settings.nav == 7, "modern settings lists its sections")
 	local modernTab = false
@@ -1680,6 +1708,7 @@ do
 		check(selected and selected.AccentBar and selected.AccentBar._shown == true
 			and selected.AccentBar._color[1] == accent[1], "the selected thread carries the accent bar")
 		check(selected.Selected._atlas == nil and selected.Selected._color[1] == ns.Theme.MODERN.selected[1], "selection is a flat wash, not the game's art")
+		check(rgba(selected.Title._textColor, accent) and selected.Title._fontObject == "T3ModernBodyBold", "the selected thread's name is bold, in the accent")
 	end
 	-- Menus, suggestions, the conversation and the list. The tracker is holding a
 	-- stand-in thread; these read the real ones, then the stand-in goes back.
@@ -1697,11 +1726,11 @@ do
 	local menu = ns.UI.ListOpen()
 	local headerGrey, checked = false, false
 	for _, r in ipairs(menu.Box._rows or {}) do
-		if r.ed.header and rgba(r.frame.Text._textColor, { 0.65, 0.68, 0.75, 1 }) then headerGrey = true end
+		if r.ed.header and rgba(r.frame.Text._textColor, muted) then headerGrey = true end
 		if not r.ed.header and r.ed.value == pick and r.frame.Check and r.frame.Check._shown ~= false
 			and r.frame.Check._texture and r.frame.Check._texture:find("icons\\check", 1, true) then checked = true end
 	end
-	check(menu and painted(menu, theme.overlay) and headerGrey and checked, "a menu is a flat overlay, with a grey group title and a line check on the choice")
+	check(menu and painted(menu, theme.overlay) and painted(menu, theme.popupBorder) and headerGrey and checked, "a menu is the popups surface with an accent edge, a dim group title and a check on the choice")
 	menu:Hide()
 	if savedOptions then model:SetOptions(savedOptions, savedValue) else model.value = savedValue end
 	local savedCommands = ns.Store.commands
@@ -1737,11 +1766,11 @@ do
 		elseif r.ed.label == "No" then no = r.frame
 		elseif r.ed.primary then submit = r.frame end
 	end
-	check(msgRow and msgRow.Body:GetText() == "|c" .. ns.Theme.ACCENT_HEX .. "Plan|r and |cffff4040no|r", "a message's gold heading is drawn in the accent")
+	check(msgRow and msgRow.Body:GetText() == "|c" .. ns.Theme.ACCENT_HEX .. "Plan|r and |c" .. mk.red .. "no|r", "a message's gold heading is drawn in the accent, and its red in the theme's")
 	check(note and note.Icon._texture:find("icons\\arrow-right", 1, true) and rgba(note.Text._textColor, text), "a note uses a line icon and the title color")
 	check(yes and rgba(yes.Bullet._color, accent) and yes.Bullet._w == 10, "a chosen answer is a gold square")
-	check(no and rgba(no.Bullet._vertex, { 0.45, 0.45, 0.45, 1 }) and no.Bullet._w == 10 and rgba(labelOf(no)._textColor, muted), "an unchosen answer is a grey square, in the muted color")
-	check(submit and rgba(labelOf(submit)._textColor, text) and labelOf(submit)._shadow[2] == 0, "a primary answer drops the font shadow")
+	check(no and rgba(no.Bullet._color, theme.controlBorder) and no.Bullet._w == 10 and rgba(labelOf(no)._textColor, muted), "an unchosen answer is a square in the control's border color, in the dim text")
+	check(submit and rgba(labelOf(submit)._textColor, text) and labelOf(submit)._fontObject == "T3ModernBodyBold", "a primary answer is bold in the foreground")
 	ns.Transcript.answers.qModern = savedAnswer
 	ns.Store.data.view = savedView
 	ns.Transcript:Refresh(true)
@@ -1762,7 +1791,7 @@ do
 	for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
 		if r.ed.thread and r.ed.thread.s == "working" then liveRow = r.frame end
 	end
-	check(liveRow and rgba(liveRow.Title._textColor, accent), "a thread's name in the list uses the accent")
+	check(liveRow and rgba(liveRow.Title._textColor, text), "a thread's name in the list is the foreground; the accent is for the selected one")
 	check(settledRow and rgba(settledRow.Title._textColor, muted), "a settled thread's title is muted")
 	ns.db.settings.collapsed.settled = savedCollapsed
 	ns.Store.data.threads = needThreads
@@ -1773,8 +1802,8 @@ do
 	} } }
 	ns.Main:ShowPage("usage")
 	local cool, hot = ns.Usage.pool.row[1], ns.Usage.pool.row[2]
-	check(cool and rgba(cool.Bar.Bar._barColor, accent), "a usage bar under 70% is the gold accent")
-	check(hot and rgba(hot.Bar.Bar._barColor, { 0.8, 0.15, 0.1, 1 }), "a usage bar past 90% turns red")
+	check(cool and rgba(cool.Bar.Bar._barColor, text), "a usage bar under 70% is the kit's foreground meter")
+	check(hot and rgba(hot.Bar.Bar._barColor, theme.red), "a usage bar past 90% turns the theme's red")
 	check(painted(ns.Usage.pool.header[1], hairline), "a usage plan is underlined with a hairline")
 	ns.Store.data.usage = savedUsage
 	ns.Main:ShowPage(page)
@@ -1865,29 +1894,63 @@ do
 	ns.Settings.search:SetText("")
 	ns.Settings.search:GetScript("OnTextChanged")(ns.Settings.search)
 	check(ns.Settings.accent and ns.Settings.accent.value == "class" and ns.Settings.accent.Text:GetText() == "Class color", "settings lists the accent, starting on class color")
-	ns.Settings.accent.value = "verdigris"
+	check(#ns.Settings.accent.options == 2 and ns.Settings.accent.options[2].value == "theme", "the accent is the class color or the theme's")
+	check(ns.Settings.palette and ns.Settings.palette.value == "tokyo-night" and ns.Settings.palette.Text:GetText() == "Tokyo Night", "settings lists the theme, starting on Tokyo Night")
+	check(#ns.Settings.palette.options == #ns.PALETTES and ns.PALETTES[1].id == "tokyo-night" and #ns.PALETTES >= 20, "every Omarchy theme is offered, Tokyo Night first")
+	-- A long list opens with its search, scrolls, and fits fourteen rows.
+	ns.UI.OpenList(ns.Settings.palette)
+	local plist = ns.UI.ListOpen()
+	check(plist and plist.Search._shown ~= false and plist.Bar._shown ~= false and #plist.filtered == #ns.PALETTES and plist._h <= 14 * 22 + 44, "the theme list scrolls instead of running off the screen")
+	plist:Hide()
+	-- The class color, unless it reads too faintly on the theme.
 	local beforeAccent = ns.Main.frame
-	ns.Settings.accent:Step(1)
-	check(ns.Main.frame ~= beforeAccent and ns.db.settings.accent == "ice" and ns.Theme.ACCENT_HEX == "ff74c6de" and painted(ns.Main.frame.Bar.Send, ns.Theme.MODERN.accent), "picking the next accent repaints Start")
-	check(ns.Settings.section == "modern" and ns.Settings.heading:GetText() == "Modern", "picking an accent stays on the Modern page")
-	check(sample.payload and rgba(sample.Bar._color, ns.Theme.MODERN.accent) and rgba(sample.Title._textColor, ns.Theme.MODERN.accent), "the open notice takes the new accent")
-	local named
-	for _, r in ipairs(ns.ThreadList.scrollBox._rows or {}) do
-		if r.ed.thread and r.ed.thread.s ~= "settled" and r.ed.thread.s ~= "snoozed" then named = r.frame break end
-	end
-	check(named and rgba(named.Title._textColor, ns.Theme.MODERN.accent), "a thread name in the list takes the new accent")
-	ns.Theme.UseAccent("nope")
-	check(ns.Theme.ACCENT_HEX == "ff7fd2b3" and ns.Theme.MODERN.accent[1] == ns.Theme.ACCENTS[1].rgb[1], "an unknown accent is verdigris")
-	UnitClass = function() return "Hunter", "HUNTER" end
-	ns.Theme.UseAccent("class")
-	check(ns.Theme.MODERN.accent[1] == 0.67 and ns.Theme.MODERN.accent[2] == 0.83 and ns.Theme.MODERN.accent[3] == 0.45 and ns.Theme.ClassAccent().label == "Class color (Hunter)", "class color uses the player's class")
-	RAID_CLASS_COLORS = { HUNTER = { r = 0.2, g = 0.4, b = 0.6 } }
-	ns.Theme.UseAccent("class")
-	check(ns.Theme.MODERN.accent[1] == 0.2 and ns.Theme.ACCENT_HEX == "ff336699", "a changed class color wins over the built-in one")
+	UnitClass = function() return "Mage", "MAGE" end
+	ns.Main:ApplyTheme()
+	check(ns.Main.frame ~= beforeAccent and ns.Theme.ACCENT_HEX == "ff40c7eb" and ns.Theme.accentWhy == "class" and ns.Settings.accent.Text:GetText() == "Class color (Mage)", "class color uses the player's class")
+	RAID_CLASS_COLORS = { MAGE = { r = 0.4, g = 0.8, b = 0.6 } }
+	check(ns.Theme.Get() and ns.Theme.ACCENT_HEX == "ff40c7eb", "the accent is worked out once, not on every use")
+	ns.Theme.Invalidate()
+	check(ns.Theme.Get() and ns.Theme.ACCENT_HEX == "ff66cc99", "a changed class color wins over the built-in one")
 	RAID_CLASS_COLORS = nil
+	ns.Theme.Invalidate()
+	local beforeTheme = ns.Main.frame
+	ns.Settings.accent:Step(1)
+	check(ns.Main.frame ~= beforeTheme and ns.db.settings.accent == "theme" and ns.Theme.ACCENT_HEX == "ff7aa2f7" and painted(ns.Main.frame.Bar.Send, ns.Theme.MODERN.accent), "the theme's accent rebuilds the window in it")
+	check(ns.Settings.section == "modern" and ns.Settings.heading:GetText() == "Modern", "picking an accent stays on the Modern page")
+	check(sample.payload and rgba(sample.Bar._color, ns.Theme.MODERN.accent) and rgba(sample.Edge[1]._color, ns.Theme.MODERN.accent), "the open notice takes the new accent")
+	ns.Settings.accent:Step(-1)
+	local beforePalette = ns.Main.frame
+	ns.Settings.palette:Step(1)
+	local second = ns.PALETTES[2]
+	check(ns.Main.frame ~= beforePalette and ns.db.settings.palette == second.id and ns.Theme.MARKUP.white == "ff" .. second.foreground:sub(2)
+		and rgba(ns.Theme.MODERN.windowBg, { tonumber(second.background:sub(2, 3), 16) / 255, tonumber(second.background:sub(4, 5), 16) / 255, tonumber(second.background:sub(6, 7), 16) / 255, 0.94 }), "picking another theme repaints the window in it")
+	check(ns.Settings.palette.Text:GetText() == second.label, "the theme dropdown names the new theme")
+	local liveTitle = _G.T3ModernBody._textColor
+	check(rgba(liveTitle, ns.Theme.MODERN.text), "the kit's fonts take the new theme's foreground")
+	-- Priest white on the White theme is too faint: the theme's accent stands in, and says so.
+	UnitClass = function() return "Priest", "PRIEST" end
+	ns.db.settings.palette = "white"
+	ns.Main:ApplyTheme()
+	check(ns.Theme.accentWhy == "faint" and ns.Theme.ACCENT_HEX == "ff6e6e6e" and ns.Settings.accent.Text:GetText():find("too faint", 1, true)
+		and ns.Theme.MODERN.mode == "light", "a class color too faint on the theme gives way to the theme's accent, and says so")
+	check(ns.Theme.Contrast({ 1, 1, 1 }, { 0, 0, 0 }) > 20.9 and ns.Theme.Contrast({ 1, 1, 1 }, { 1, 1, 1 }) == 1, "contrast is WCAG's ratio")
+	UnitClass = function() return "Shaman", "SHAMAN" end
+	ns.Theme.Invalidate()
+	ns.Theme.Get()
+	check(ns.Theme.accentWhy == "class" and ns.Theme.ACCENT_HEX == "ff0070de", "a class color that reads on the light theme is kept")
 	UnitClass = nil
-	ns.db.settings.accent = "verdigris"
-	ns.Theme.UseAccent("verdigris")
+	ns.db.settings.palette = "tokyo-night"
+	ns.Main:ApplyTheme()
+	-- A missing font file leaves the game's font, never no text.
+	ns.Theme.FONT_REGULAR, ns.Theme.FONT_BOLD = "Interface\\AddOns\\T3Code\\Media\\fonts\\Gone.ttf", "Interface\\AddOns\\T3Code\\Media\\fonts\\Gone.ttf"
+	Stub.missingFonts = { [ns.Theme.FONT_REGULAR] = true }
+	local savedFile = _G.T3ModernBody._font[1]
+	ns.Theme.UpdateFonts()
+	check(not ns.Theme.fontOk and _G.T3ModernBody._font[1] ~= ns.Theme.FONT_REGULAR and _G.T3ModernBody._font[1] ~= nil and _G.T3ModernBody._font[2] == 12, "a font file that won't load falls back to the game's font")
+	Stub.missingFonts = nil
+	ns.Theme.FONT_REGULAR, ns.Theme.FONT_BOLD = nil, nil
+	ns.Theme.UpdateFonts()
+	check(_G.T3ModernBody._font[1] == savedFile, "the fonts are put back")
 	ns.Main:ShowPage(page)
 	ns.Settings.design:Step(-1)
 	local f3 = ns.Main.frame
@@ -1896,12 +1959,27 @@ do
 	check(ns.Color("gold", "Start") == "|cffffd100Start|r" and ns.Theme.Markup("|cffffd100Plan|r") == "|cffffd100Plan|r", "classic headings stay the game's gold")
 	check(f3._w == 1100 and f3._h == 700, "the resized size carries across the design switch")
 	check(f3.ResizeGrip ~= nil, "the classic window resizes too")
+	-- Nothing of the modern look is left on the game's window: no kit font, no text
+	-- color of a theme, and chat and markup on the game's own colors.
+	local function under(frame, root)
+		while frame do
+			if frame == root then return true end
+			frame = frame._parent
+		end
+	end
+	local kitFonts = 0
+	for _, fr in ipairs(Stub.frames) do
+		if fr._kind == "FontString" and under(fr, f3) and tostring(fr._fontObject):find("^T3Modern") then kitFonts = kitFonts + 1 end
+	end
+	check(kitFonts == 0, "the classic window uses only the game's fonts")
+	check(ns.Color("white", "a") == "|cffffffffa|r" and ns.Color("grey", "a") == "|cff9d9d9da|r" and ns.Theme.Markup("|cffff4040no|r") == "|cffff4040no|r", "classic text keeps the game's colors")
 	check(not ns.Settings.checks[1].Fill, "classic checkboxes keep the game's own look")
 	check(tf.Header._shown ~= false and tf.Modern.Band._shown == false, "the classic tracker header returns")
 	check(tf.Lines[1].Sub:GetText():find("^- ", 1) ~= nil, "classic status keeps the tracker dash")
 	check(tf.Lines[1].Dot._shown ~= false, "the classic tracker dot is back")
 	local tl = tf.Lines[1]
 	check(tl.Title._font == nil and tl.Sub._font == nil and tl.Title._fontObject ~= nil and tl.Sub._fontObject ~= nil
+		and not tostring(tl.Title._fontObject):find("^T3Modern") and not tostring(tl.Sub._fontObject):find("^T3Modern")
 		and tl.Title._shadow and tl.Title._shadow[1] == 1 and tl.Sub._shadow and tl.Sub._shadow[1] == 1, "the classic tracker lines get their fonts and shadows back")
 	check(notice.Bar._shown == false and notice._backdrop and notice._backdrop.edgeFile ~= nil, "a notice goes back to the gold border")
 	check(rgba(notice.Title._textColor, { 1, 0.82, 0, 1 }), "a notice title goes back to the game's gold")
@@ -1920,6 +1998,37 @@ do
 	ns.Main:ShowPage("threads")
 	ns.Main:Refresh()
 	check(true, "the rebuilt window still refreshes")
+end
+
+-- Omarchy's palettes: what a theme leaves out is filled in as omarchy-ui does it, and
+-- settings from before the themes move onto them.
+do
+	local Theme = ns.Theme
+	local function same(c, r, g, b) return c and math.abs(c[1] - r / 255) < 1e-6 and math.abs(c[2] - g / 255) < 1e-6 and math.abs(c[3] - b / 255) < 1e-6 end
+	local full = Theme.Resolve(ns.PALETTES[1])
+	check(same(full.background, 0x1a, 0x1b, 0x26) and same(full.foreground, 0xa9, 0xb1, 0xd6) and same(full.textDim, 0x56, 0x5f, 0x89)
+		and same(full.textFaint, 0x41, 0x48, 0x68) and same(full.accent, 0x7a, 0xa2, 0xf7) and full.mode == "dark", "Tokyo Night resolves to its own colors")
+	local dark = Theme.Resolve({ color0 = "#000000", color7 = "#FFFFFF", color4 = "#0000ff", color1 = "#ff0000", color8 = "#333333" })
+	check(same(dark.background, 0, 0, 0) and same(dark.foreground, 255, 255, 255) and same(dark.accent, 0, 0, 255) and same(dark.red, 255, 0, 0)
+		and same(dark.textFaint, 0x33, 0x33, 0x33) and same(dark.blue, 0, 0, 255) and dark.mode == "dark", "missing keys fall back to color0..color8")
+	check(same(dark.textDim, 170, 170, 170), "a dark theme without dark_foreground dims the foreground by 1.5")
+	local bare = Theme.Resolve({ foreground = "#ffffff", background = "#000000" })
+	check(same(bare.textFaint, 128, 128, 128) and same(bare.green, 0x7f, 0x9f, 0x6f) and same(bare.orange, 0xc0, 0xa0, 0x60), "without muted or color8 the faint text is darker 2; a missing color is the kit's default, and orange falls back to yellow")
+	local light = Theme.Resolve({ mode = "light", foreground = "#000000", background = "#ffffff", dark_fg = "#123456" })
+	check(same(light.textDim, 0x12, 0x34, 0x56) and same(light.textFaint, 128, 128, 128) and light.mode == "light", "a light theme mixes toward the background, and reads the legacy dark_fg")
+	local lightBare = Theme.Resolve({ mode = "light", foreground = "#000000", background = "#ffffff" })
+	check(same(lightBare.textDim, 85, 85, 85), "a light theme's dim text is a third of the way to the background")
+	local empty = Theme.Resolve({})
+	check(same(empty.background, 0x10, 0x13, 0x15) and same(empty.foreground, 0xca, 0xcc, 0xcc) and same(empty.accent, 0xca, 0xcc, 0xcc), "a theme with nothing uses the kit's defaults")
+	local old = { accent = "verdigris" }
+	ns.MigrateSettings(old)
+	check(old.accent == "theme" and old.palette == "tokyo-night", "an old fixed accent becomes the theme's, and a missing theme Tokyo Night")
+	local kept = { accent = "class", palette = "nord" }
+	ns.MigrateSettings(kept)
+	check(kept.accent == "class" and kept.palette == "nord", "current settings are kept")
+	local gone = { accent = "theme", palette = "osaka-jade" }
+	ns.MigrateSettings(gone)
+	check(gone.palette == "tokyo-night", "a theme Omarchy no longer ships becomes Tokyo Night")
 end
 
 -- Thread titles are cut on whole characters, measured a few times, not once a byte.

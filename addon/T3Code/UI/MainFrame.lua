@@ -142,8 +142,8 @@ function M:Create()
 	f:Hide()
 	f:SetTitle("T3 Code")
 	f:SetPortraitToAsset(ns.media .. "portrait")
-	-- The modern design hides the game's ornate frame and paints its own: one
-	-- flat navy, a hairline border, and the title on that same ground. The
+	-- The modern design hides the game's ornate frame and paints its own: the
+	-- theme's background, an accent edge, and the title on that same ground. The
 	-- template's top streaks are a black gradient; they stay hidden.
 	local theme = Theme.Get()
 	if theme then
@@ -164,11 +164,12 @@ function M:Create()
 			HideArt(f.Inset)
 		end
 		-- One ground for the whole window. Its alpha is the transparency setting.
-		local navy = { theme.windowBg[1], theme.windowBg[2], theme.windowBg[3], 1 }
-		f.ModernBg = Theme.Solid(f, navy)
+		local ground = { theme.windowBg[1], theme.windowBg[2], theme.windowBg[3], 1 }
+		f.ModernBg = Theme.Solid(f, ground)
 		f.ModernBg:SetAllPoints()
-		Theme.Edges(f, theme.hairline)
-		f.ModernBand = Theme.Solid(f, navy)
+		-- The window's edge is the theme's accent, as Hyprland draws the active window.
+		f.ModernEdges = { Theme.Edges(f, theme.popupBorder) }
+		f.ModernBand = Theme.Solid(f, ground)
 		f.ModernBand:SetHeight(BAND_H)
 		f.ModernBand:SetPoint("TOPLEFT")
 		f.ModernBand:SetPoint("TOPRIGHT")
@@ -205,7 +206,7 @@ function M:Create()
 				f.Inset:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -2, BAR_CLEAR)
 			end
 		end
-		f.ModernTitle = f:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+		f.ModernTitle = f:CreateFontString(nil, "ARTWORK", "T3ModernTitle")
 		f.ModernTitle:SetPoint("LEFT", f, "TOPLEFT", 12, -(BAND_H / 2))
 		f.ModernTitle:SetText("T3 Code")
 		-- Near-white. The accent stays on what's selected.
@@ -214,7 +215,7 @@ function M:Create()
 		local close = CreateFrame("Button", nil, f)
 		close:SetSize(16, 16)
 		close:SetPoint("TOPRIGHT", -6, -3)
-		close.Text = close:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+		close.Text = close:CreateFontString(nil, "ARTWORK", "T3ModernBody")
 		close.Text:SetPoint("CENTER", 0, 0)
 		close.Text:SetText("×")
 		local closeHl = Theme.Solid(close, theme.hover, "HIGHLIGHT")
@@ -257,12 +258,12 @@ function M:Create()
 	f.Status:SetWidth(WIDTH - 220)
 	if theme then
 		-- Same row as the title, so the thread name doesn't take a second line.
-		f.Subtitle:SetFontObject("GameFontHighlightSmall")
+		f.Subtitle:SetFontObject("T3ModernSmallDim")
 		f.Subtitle:ClearAllPoints()
 		f.Subtitle:SetPoint("LEFT", f.ModernTitle, "RIGHT", 12, 0)
 		f.Subtitle:SetJustifyH("LEFT")
 		f.Subtitle:SetWordWrap(false)
-		f.Status:SetFontObject("GameFontHighlightSmall")
+		f.Status:SetFontObject("T3ModernSmall")
 		f.Status:ClearAllPoints()
 		f.Status:SetJustifyH("RIGHT")
 		f.Status:SetWordWrap(false)
@@ -528,7 +529,7 @@ function M:CreateThreadsPage(page)
 	composer:SetHeight(COMPOSER_H)
 	right.ComposerInset = composer
 
-	local box = CreateFrame("Frame", nil, composer, "T3CodeComposerTemplate")
+	local box = CreateFrame("Frame", nil, composer, theme and "T3CodeComposerModernTemplate" or "T3CodeComposerTemplate")
 	box:SetPoint("TOPLEFT", 8, -6)
 	box:SetPoint("BOTTOMRIGHT", -8, 18)
 	box:RegisterCallback("OnEnterPressed", function()
@@ -811,7 +812,7 @@ function M:OpenCustomSnooze()
 		if theme then
 			Theme.Paint(bg, theme.overlay)
 			bg:SetAllPoints()
-			Theme.Edges(p, theme.hairline)
+			Theme.Edges(p, theme.popupBorder)
 		else
 			bg:SetAtlas("common-dropdown-bg")
 			bg:SetPoint("TOPLEFT", -10, 3)
@@ -833,6 +834,21 @@ function M:OpenCustomSnooze()
 		p.Box:SetMaxLetters(40)
 		p.Box:SetScript("OnEnterPressed", function() M:SubmitCustomSnooze() end)
 		p.Box:SetScript("OnEscapePressed", function() p:Hide() end)
+		if theme then
+			-- The kit's input: glass with a border, the text in the foreground.
+			for _, key in ipairs({ "Left", "Middle", "Right" }) do
+				if p.Box[key] then p.Box[key]:Hide() end
+			end
+			local well = Theme.Solid(p.Box, theme.panel)
+			well:SetPoint("TOPLEFT", -6, 0)
+			well:SetPoint("BOTTOMRIGHT")
+			p.Box:SetFontObject("T3ModernBody")
+			p.Box:SetTextInsets(0, 4, 0, 0)
+			local edge = CreateFrame("Frame", nil, p.Box)
+			edge:SetPoint("TOPLEFT", -6, 0)
+			edge:SetPoint("BOTTOMRIGHT")
+			Theme.Edges(edge, theme.controlBorder)
+		end
 		p.Go = UI.Button(p, "Snooze", 76, function() M:SubmitCustomSnooze() end)
 		p.Go:SetPoint("LEFT", p.Box, "RIGHT", 6, 0)
 		p.Hint = UI.Text(p, "GameFontDisableSmall", "LEFT")
@@ -1320,9 +1336,9 @@ function M:Refresh()
 	local canDictate = self.dictating or not (bridge and bridge.dictationHint)
 	f.Bar.Mic:SetEnabled(canDictate)
 	f.Bar.Mic.Icon:SetDesaturated(not canDictate)
-	f.Bar.Mic.Icon:SetVertexColor(self.dictating and 1 or 1, self.dictating and 0.3 or 1, self.dictating and 0.3 or 1)
+	UI.TintActive(f.Bar.Mic.Icon, self.dictating)
 	local reading = ns.Reading()
-	f.Bar.Speak.Icon:SetVertexColor(1, reading and 0.3 or 1, reading and 0.3 or 1)
+	UI.TintActive(f.Bar.Speak.Icon, reading)
 	f.Bar.Back:SetEnabled(self.mode == "new" or ns.viewId ~= nil or not f.Pages.threads.Left:IsShown())
 	local commands = ns.Store:Commands(self:NextProvider())
 	f.Bar.Insert:SetEnabled(commands ~= nil)
@@ -1555,7 +1571,7 @@ function M:HandleDictation(d)
 		ns.Print("Didn't catch anything — hold to talk and try again.")
 	elseif d.state == "error" then
 		self.dictState = nil
-		ns.Print(ns.Color("red", "Dictation: " .. (d.err or "failed")))
+		ns.Print(ns.ChatColor("red", "Dictation: " .. (d.err or "failed")))
 	elseif d.state == "cancelled" then
 		self.dictState = nil
 	end
@@ -1600,7 +1616,7 @@ ns:On("CommandResult", function(r)
 	end
 	if r.ok == false and M.pendingSnooze and r.id == M.pendingSnooze.cmd then M.pendingSnooze = nil end
 	if r.ok == false and r.msg then
-		ns.Print(ns.Color("red", r.msg))
+		ns.Print(ns.ChatColor("red", r.msg))
 		if UIErrorsFrame then UIErrorsFrame:AddMessage("T3 Code: " .. r.msg, 1, 0.2, 0.2) end
 	end
 	if r.ok == false then

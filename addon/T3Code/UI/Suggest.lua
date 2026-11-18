@@ -205,7 +205,7 @@ function S:Frame()
 	if theme then
 		ns.Theme.Paint(bg, theme.overlay)
 		bg:SetAllPoints()
-		ns.Theme.Edges(f, theme.hairline)
+		ns.Theme.Edges(f, theme.popupBorder)
 	else
 		bg:SetAtlas("common-dropdown-bg")
 		bg:SetPoint("TOPLEFT", -10, 3)
@@ -240,7 +240,7 @@ function S:Frame()
 			if not row.Selected:GetAtlas() then row.Selected:SetColorTexture(1, 1, 1, 0.15) end
 		end
 		row.Selected:SetAllPoints()
-		row.Text = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+		row.Text = row:CreateFontString(nil, "ARTWORK", ns.UI.Font("GameFontHighlightSmall"))
 		row.Text:SetPoint("LEFT", 8, 0)
 		row.Text:SetPoint("RIGHT", -4, 0)
 		row.Text:SetJustifyH("LEFT")
@@ -249,7 +249,7 @@ function S:Frame()
 		f.Rows[i] = row
 	end
 	f.Thumb = f:CreateTexture(nil, "ARTWORK")
-	f.Thumb:SetColorTexture(1, 0.82, 0, 0.45)
+	if theme then ns.Theme.Paint(f.Thumb, theme.controlBorder) else f.Thumb:SetColorTexture(1, 0.82, 0, 0.45) end
 	f.Thumb:SetWidth(3)
 
 	f:SetScript("OnMouseWheel", function(_, delta) S:Scroll(delta > 0 and -3 or 3) end)

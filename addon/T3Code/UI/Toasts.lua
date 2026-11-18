@@ -1,5 +1,5 @@
 -- Notices when a thread finishes or needs you: a small gold-bordered toast at the
--- top of the screen, or a dusk card under the modern design. A sound, a chat line,
+-- top of the screen, or the kit's notification card under the modern design. A sound, a chat line,
 -- and optionally the reply read aloud.
 
 local _, ns = ...
@@ -22,9 +22,9 @@ local function Sound(kind)
 	if id then PlaySound(id, "Master") end
 end
 
-local function Flat(fs, size)
-	local font, cur = fs:GetFont()
-	fs:SetFont(font or "Fonts\\FRIZQT__.TTF", size or cur or 12, "")
+-- The kit's flat font, colored from the theme.
+local function Flat(fs, font)
+	fs:SetFontObject(font)
 	fs:SetShadowOffset(0, 0)
 end
 
@@ -39,7 +39,7 @@ local function StyleToast(f)
 	local theme = Theme.Get()
 	if theme then
 		f:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
-		-- The same dusk ground as the window, so the world shows through.
+		-- The kit's notification: the window's ground, an accent border.
 		f:SetBackdropColor(theme.windowBg[1], theme.windowBg[2], theme.windowBg[3], theme.windowBg[4])
 		if not f.Bar then
 			f.Bar = f:CreateTexture(nil, "ARTWORK")
@@ -50,13 +50,16 @@ local function StyleToast(f)
 		Theme.Paint(f.Bar, theme.accent)
 		f.Bar:Show()
 		if not f.Edge then
-			local top, bottom, _, right = Theme.Edges(f, theme.hairline, true)
+			local top, bottom, _, right = Theme.Edges(f, theme.popupBorder, true)
 			f.Edge = { top, bottom, right }
 		end
-		for _, edge in ipairs(f.Edge) do edge:Show() end
-		Flat(f.Title, 13)
-		Theme.SetText(f.Title, theme.accent)
-		Flat(f.Text, 11)
+		for _, edge in ipairs(f.Edge) do
+			Theme.Paint(edge, theme.popupBorder)
+			edge:Show()
+		end
+		Flat(f.Title, "T3ModernTitle")
+		Theme.SetText(f.Title, theme.text)
+		Flat(f.Text, "T3ModernSmall")
 	else
 		f:SetBackdrop({
 			bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
@@ -80,7 +83,7 @@ local function Fill(f, t, kind)
 	local theme = Theme.Get()
 	if theme then
 		local word = ({ input = "Needs you", plan = "Plan ready", failed = "Failed", open = "Finished" })[kind] or ""
-		local mark = (kind == "input" or kind == "plan") and theme.accent or (kind == "failed" and { 0.90, 0.35, 0.32 } or theme.muted)
+		local mark = (kind == "input" or kind == "plan") and theme.orange or (kind == "failed" and theme.red or theme.muted)
 		local line = Ink(mark, word) .. Ink(theme.muted, "  ·  " .. ns.Store:ProjectName(t.p))
 		if t.last then line = line .. "\n" .. Ink(theme.text, t.last) end
 		f.Text:SetText(line)
@@ -216,7 +219,7 @@ ns:On("ThreadTransition", function(t, before, after)
 	local needsYou = (after == "input" or after == "plan") and before ~= after
 	if not finished and not needsYou then return end
 	local kind = after
-	ns.Print(ns.Color("white", t.title) .. " " .. VERBS[kind] .. ".")
+	ns.Print(ns.ChatColor("white", t.title) .. " " .. VERBS[kind] .. ".")
 	if ns.IsQuiet() then
 		-- In a fight (or a quiet instance): hold the pop-up and voice until after.
 		for i = #N.held, 1, -1 do

@@ -53,14 +53,14 @@ end
 -- stops the reading.
 local function ShowSpeak(button, m)
 	button.reading = ns.Reading(ns.ReadingKey(ns.viewId, m.n))
-	button.Icon:SetVertexColor(1, button.reading and 0.3 or 1, button.reading and 0.3 or 1)
+	UI.TintActive(button.Icon, button.reading)
 end
 
 local function InitMessage(frame, ed)
 	if not frame.Body then
-		frame.Label = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+		frame.Label = frame:CreateFontString(nil, "ARTWORK", UI.Font("GameFontNormalSmall"))
 		frame.Label:SetPoint("TOPLEFT", PAD_X, -6)
-		frame.Body = frame:CreateFontString(nil, "ARTWORK", BODY_FONT)
+		frame.Body = frame:CreateFontString(nil, "ARTWORK", UI.Font(BODY_FONT))
 		frame.Body:SetPoint("TOPLEFT", frame.Label, "BOTTOMLEFT", 0, -4)
 		frame.Body:SetJustifyH("LEFT")
 		frame.Body:SetJustifyV("TOP")
@@ -70,7 +70,7 @@ local function InitMessage(frame, ed)
 		frame.Speak:SetPoint("TOPRIGHT", -6, -4)
 		frame.Speak:SetAlpha(0.8)
 		UI.Tooltip(frame.Speak, function(self) return self.reading and "Stop reading aloud" or "Read aloud" end)
-		frame.Time = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+		frame.Time = frame:CreateFontString(nil, "ARTWORK", UI.Font("GameFontDisableSmall"))
 		frame.Time:SetPoint("RIGHT", frame.Speak, "LEFT", -6, 0)
 	end
 	local m = ed.msg
@@ -108,7 +108,7 @@ local function InitNote(frame, ed)
 		frame.Icon = frame:CreateTexture(nil, "ARTWORK")
 		frame.Icon:SetSize(16, 16)
 		frame.Icon:SetPoint("TOPLEFT", PAD_X, -6)
-		frame.Text = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+		frame.Text = frame:CreateFontString(nil, "ARTWORK", UI.Font("GameFontNormal"))
 		frame.Text:SetPoint("TOPLEFT", frame.Icon, "TOPRIGHT", 6, 0)
 		frame.Text:SetJustifyH("LEFT")
 		frame.Text:SetJustifyV("TOP")
@@ -134,7 +134,7 @@ local function InitOption(button, ed)
 		button.Bullet = button:CreateTexture(nil, "ARTWORK")
 		button.Bullet:SetSize(10, 10)
 		button.Bullet:SetPoint("LEFT", PAD_X + 6, 0)
-		button.Label = button:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+		button.Label = button:CreateFontString(nil, "ARTWORK", UI.Font("GameFontNormal"))
 		button.Label:SetPoint("LEFT", button.Bullet, "RIGHT", 8, 0)
 		button.Label:SetPoint("RIGHT", -8, 0)
 		button.Label:SetJustifyH("LEFT")
@@ -161,13 +161,9 @@ local function InitOption(button, ed)
 	local theme = ns.Theme.Get()
 	if ed.checked ~= nil then
 		if theme then
-			-- A flat square: the accent when checked, grey when not.
-			button.Bullet:SetTexture("Interface\\Buttons\\WHITE8X8")
-			if ed.checked then
-				ns.Theme.Paint(button.Bullet, theme.accent)
-			else
-				button.Bullet:SetVertexColor(0.45, 0.45, 0.45)
-			end
+			-- The kit's check box, square: the accent when checked, the control's
+			-- border color when not.
+			ns.Theme.Paint(button.Bullet, ed.checked and theme.accent or theme.controlBorder)
 			button.Bullet:SetSize(10, 10)
 		else
 			button.Bullet:SetTexture(ed.checked and "Interface\\Buttons\\UI-CheckBox-Check" or "Interface\\Buttons\\UI-CheckBox-Up")
@@ -186,10 +182,7 @@ local function InitOption(button, ed)
 	end
 	button.Label:SetText(ed.label)
 	if theme then
-		-- GameFontNormal's shadow is light, so white letters disappeared into it.
-		local path, size = button.Label:GetFont()
-		button.Label:SetFont(path or "Fonts\\FRIZQT__.TTF", size or 12, "")
-		button.Label:SetShadowOffset(0, 0)
+		button.Label:SetFontObject(ed.primary and "T3ModernBodyBold" or "T3ModernBody")
 		ns.Theme.SetText(button.Label, ed.primary and theme.text or theme.muted)
 	elseif ed.primary then
 		button.Label:SetTextColor(1, 1, 1)
@@ -291,13 +284,13 @@ end
 local function MessageElement(msg, echo)
 	local width = T:BodyWidth()
 	local fixKey = math.floor(width) .. ":" .. msg.t
-	local height = math.max(34 + Measure(msg.t, width, BODY_FONT, BODY_SPACING), T.heightFix[fixKey] or 0)
+	local height = math.max(34 + Measure(msg.t, width, UI.Font(BODY_FONT), BODY_SPACING), T.heightFix[fixKey] or 0)
 	return { kind = "msg", msg = msg, echo = echo, height = height, fixKey = fixKey }
 end
 
 local function Note(text, icon, opts)
 	local width = T:BodyWidth() - 22
-	local e = { kind = "note", text = text, icon = icon, height = 14 + math.max(16, Measure(text, width, "GameFontNormal")) }
+	local e = { kind = "note", text = text, icon = icon, height = 14 + math.max(16, Measure(text, width, UI.Font("GameFontNormal"))) }
 	if opts then for k, v in pairs(opts) do e[k] = v end end
 	return e
 end
